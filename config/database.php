@@ -140,6 +140,29 @@ class InviteDB
             return false; // 邀请码不存在或已被使用
         }
     }
+
+    /**
+     * 恢复邀请码 (当且仅当 API 请求等后续流程失败时调用)
+     * @param string $code
+     * @return bool
+     */
+    public function restoreCode(string $code): bool
+    {
+        $this->db->exec('BEGIN TRANSACTION');
+        $stmt = $this->db->prepare('UPDATE invite_codes SET used = 0 WHERE code = :code AND used = 1');
+        $stmt->bindValue(':code', $code, SQLITE3_TEXT);
+        $stmt->execute();
+        
+        $success = $this->db->changes() > 0;
+        
+        if ($success) {
+            $this->db->exec('COMMIT');
+            return true;
+        } else {
+            $this->db->exec('ROLLBACK');
+            return false;
+        }
+    }
 }
 
 // ----------------------------------------------------

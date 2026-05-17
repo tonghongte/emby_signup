@@ -160,6 +160,9 @@ if (isset($_GET['action']) && $_GET['action'] === 'logout') {
 if (isset($_POST['login_user'], $_POST['login_pass'])) {
     if ($_POST['login_user'] === $config['admin']['username'] && $_POST['login_pass'] === $config['admin']['password']) {
         $_SESSION['admin_logged_in'] = true;
+        if (empty($_SESSION['csrf_token'])) {
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+        }
         header("Location: admin.php");
         exit;
     } else {
@@ -174,6 +177,13 @@ $is_authenticated = !empty($_SESSION['admin_logged_in']);
 // ----------------------------------------------------
 if ($is_authenticated && isset($_POST['ajax'])) {
     header("Content-Type: application/json; charset=utf-8");
+    
+    // CSRF Token 验证
+    if (empty($_POST['csrf_token']) || empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
+        echo json_encode(['status' => 'error', 'message' => '❌ CSRF Token 验证失败，请刷新页面重试', 'html' => '', 'count' => 0]);
+        exit;
+    }
+    
     global $invite_db;
 
     $response = ['status' => 'error', 'message' => '未知操作', 'html' => '', 'count' => 0];
@@ -457,6 +467,7 @@ $js_template_body = json_encode($template_content);
         let toastTimeout;
         let generateBtnOriginalText = ''; 
         const emailTemplate = <?php echo $js_template_body; ?>;
+        const csrfToken = "<?php echo $_SESSION['csrf_token']; ?>";
 
         function copyInviteLink(btn, text) {
             const original = btn.innerHTML;
@@ -510,7 +521,7 @@ $js_template_body = json_encode($template_content);
             try {
                 const res = await fetch("admin.php", {
                     method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                    body: "ajax=1&" + body 
+                    body: "ajax=1&csrf_token=" + encodeURIComponent(csrfToken) + "&" + body 
                 });
                 if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
                 const data = await res.json();

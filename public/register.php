@@ -36,53 +36,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else if (!in_array($input_invite_code, $valid_codes)) {
         $message = '邀请码无效！ '; 
     } else {
-        $emby_url = rtrim($config['emby']['base_url'], '/');
-        $emby_token = $config['emby']['token'];
-        $template_id = $config['emby']['template_user_id'];
-
-        $url1 = "{$emby_url}/emby/Users/New?X-Emby-Token={$emby_token}";
-        $data1 = array(
-            'Name' => $username, 
-            'CopyFromUserId' => $template_id, 
-            'UserCopyOptions' => 'UserPolicy,UserConfiguration'
-        );
-        $options1 = array(
-            'http' => array(
-                'header'  => "Content-type: application/x-www-form-urlencoded\r\n",
-                'method'  => 'POST',
-                'content' => http_build_query($data1)
-            )
-        );
-        $context1  = stream_context_create($options1);
-        $result1 = @file_get_contents($url1, false, $context1);
-
-        if ($result1 === FALSE) { 
-            $message = "连接 Emby 服务器失败，请联系管理员！";
+        if (!$invite_db->useCode($input_invite_code)) {
+            $message = '邀请码已被其他请求使用，请重试或使用新的邀请码！';
         } else {
-            $response1 = json_decode($result1, true);
-            if (!isset($response1['Id']) || $response1['Id'] === NULL) {
-                $message = "用户创建失败，请联系管理员！";
+            $emby_url = rtrim($config['emby']['base_url'], '/');
+            $emby_token = $config['emby']['token'];
+            $template_id = $config['emby']['template_user_id'];
+
+            $url1 = "{$emby_url}/emby/Users/New?X-Emby-Token={$emby_token}";
+            $data1 = array(
+                'Name' => $username, 
+                'CopyFromUserId' => $template_id, 
+                'UserCopyOptions' => 'UserPolicy,UserConfiguration'
+            );
+            $options1 = array(
+                'http' => array(
+                    'header'  => "Content-type: application/x-www-form-urlencoded\r\n",
+                    'method'  => 'POST',
+                    'content' => http_build_query($data1)
+                )
+            );
+            $context1  = stream_context_create($options1);
+            $result1 = @file_get_contents($url1, false, $context1);
+
+            if ($result1 === FALSE) { 
+                $invite_db->restoreCode($input_invite_code);
+                $message = "连接 Emby 服务器失败，请联系管理员！";
             } else {
-                $userid = $response1['Id'];
-                $url2 = "{$emby_url}/emby/Users/{$userid}/Password?X-Emby-Token={$emby_token}";
-                $data2 = array('NewPw' => $passwd);
-                $options2 = array(
-                    'http' => array(
-                        'header'  => "Content-type: application/x-www-form-urlencoded\r\n",
-                        'method'  => 'POST',
-                        'content' => http_build_query($data2)
-                    )
-                );
-                $context2  = stream_context_create($options2);
-                $result2 = @file_get_contents($url2, false, $context2);
-                
-                if ($result2 === FALSE) { 
-                    $message = "密码设置失败，请联系管理员重置！";
+                $response1 = json_decode($result1, true);
+                if (!isset($response1['Id']) || $response1['Id'] === NULL) {
+                    $invite_db->restoreCode($input_invite_code);
+                    $message = "用户创建失败，请联系管理员！";
                 } else {
-                    if ($invite_db->useCode($input_invite_code)) {
-                        $message = '注册完成！';
+                    $userid = $response1['Id'];
+                    $url2 = "{$emby_url}/emby/Users/{$userid}/Password?X-Emby-Token={$emby_token}";
+                    $data2 = array('NewPw' => $passwd);
+                    $options2 = array(
+                        'http' => array(
+                            'header'  => "Content-type: application/x-www-form-urlencoded\r\n",
+                            'method'  => 'POST',
+                            'content' => http_build_query($data2)
+                        )
+                    );
+                    $context2  = stream_context_create($options2);
+                    $result2 = @file_get_contents($url2, false, $context2);
+                    
+                    if ($result2 === FALSE) {
+                        $invite_db->restoreCode($input_invite_code); 
+                        $message = "密码设置失败，请联系管理员重置！";
                     } else {
-                        $message = '邀请码核销异常。';
+                        $message = '注册完成！';
                     }
                 }
             }
