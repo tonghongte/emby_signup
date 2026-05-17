@@ -39,7 +39,27 @@ class InviteDB
             code TEXT PRIMARY KEY NOT NULL,
             used INTEGER DEFAULT 0 NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )";
+        );
+        CREATE TABLE IF NOT EXISTS requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            emby_user_id TEXT NOT NULL,
+            emby_username TEXT NOT NULL,
+            tmdb_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            poster_url TEXT,
+            media_type TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            emby_user_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            message TEXT,
+            is_read INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );";
 
         $this->db->exec($sql);
         
@@ -163,7 +183,124 @@ class InviteDB
             return false;
         }
     }
+    
+    // ==========================================
+    // Requests & Notifications Methods
+    // ==========================================
+
+    public function addRequest($emby_user_id, $emby_username, $tmdb_id, $title, $poster_url, $media_type): bool
+    {
+        $stmt = $this->db->prepare('INSERT INTO requests (emby_user_id, emby_username, tmdb_id, title, poster_url, media_type) VALUES (:user_id, :username, :tmdb_id, :title, :poster_url, :media_type)');
+        $stmt->bindValue(':user_id', $emby_user_id, SQLITE3_TEXT);
+        $stmt->bindValue(':username', $emby_username, SQLITE3_TEXT);
+        $stmt->bindValue(':tmdb_id', $tmdb_id, SQLITE3_INTEGER);
+        $stmt->bindValue(':title', $title, SQLITE3_TEXT);
+        $stmt->bindValue(':poster_url', $poster_url, SQLITE3_TEXT);
+        $stmt->bindValue(':media_type', $media_type, SQLITE3_TEXT);
+        $result = $stmt->execute();
+        return $result !== false;
+    }
+
+    public function getUserRequests($emby_user_id): array
+    {
+        $stmt = $this->db->prepare("SELECT * FROM requests WHERE emby_user_id = :user_id ORDER BY created_at DESC");
+        $stmt->bindValue(':user_id', $emby_user_id, SQLITE3_TEXT);
+        $result = $stmt->execute();
+        $requests = [];
+        while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
+            $requests[] = $row;
+        }
+        return $requests;
+    }
+
+    public function getAllRequests(): array
+    {
+        $result = $this->db->query("SELECT * FROM requests ORDER BY created_at DESC");
+        $requests = [];
+        if ($result) {
+            while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
+                $requests[] = $row;
+            }
+        }
+        return $requests;
+    }
+    
+    public function getRequestById($id)
+    {
+        $stmt = $this->db->prepare("SELECT * FROM requests WHERE id = :id");
+        $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+        $result = $stmt->execute();
+        if ($result) {
+            return $result->fetchArray(SQLITE3_ASSOC);
+        }
+        return null;
+    }
+
+    public function updateRequestStatus($id, $status): bool
+    {
+        $stmt = $this->db->prepare("UPDATE requests SET status = :status, updated_at = CURRENT_TIMESTAMP WHERE id = :id");
+        $stmt->bindValue(':status', $status, SQLITE3_TEXT);
+        $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+        $stmt->execute();
+        return $this->db->changes() > 0;
+    }
+
+    public function addNotification($emby_user_id, $title, $message): bool
+    {
+        $stmt = $this->db->prepare('INSERT INTO notifications (emby_user_id, title, message) VALUES (:user_id, :title, :message)');
+        $stmt->bindValue(':user_id', $emby_user_id, SQLITE3_TEXT);
+        $stmt->bindValue(':title', $title, SQLITE3_TEXT);
+        $stmt->bindValue(':message', $message, SQLITE3_TEXT);
+        $result = $stmt->execute();
+        return $result !== false;
+    }
+
+    public function getUserNotifications($emby_user_id, $unread_only = false): array
+    {
+        $sql = "SELECT * FROM notifications WHERE emby_user_id = :user_id";
+        if ($unread_only) {
+            $sql .= " AND is_read = 0";
+        }
+        $sql .= " ORDER BY created_at DESC";
+        $stmt = $this->db->prepare($sql);
+        $stmt->bindValue(':user_id', $emby_user_id, SQLITE3_TEXT);
+        $result = $stmt->execute();
+        $notifications = [];
+        while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
+            $notifications[] = $row;
+        }
+        return $notifications;
+    }
+    
+    public function getUnreadNotificationCount($emby_user_id): int
+    {
+        $stmt = $this->db->prepare("SELECT COUNT(*) as count FROM notifications WHERE emby_user_id = :user_id AND is_read = 0");
+        $stmt->bindValue(':user_id', $emby_user_id, SQLITE3_TEXT);
+        $result = $stmt->execute();
+        if ($result && $row = $result->fetchArray(SQLITE3_ASSOC)) {
+            return (int)$row['count'];
+        }
+        return 0;
+    }
+
+    public function markNotificationAsRead($id, $emby_user_id): bool
+    {
+        $stmt = $this->db->prepare("UPDATE notifications SET is_read = 1 WHERE id = :id AND emby_user_id = :user_id");
+        $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+        $stmt->bindValue(':user_id', $emby_user_id, SQLITE3_TEXT);
+        $stmt->execute();
+        return $this->db->changes() > 0;
+    }
+
+    public function markAllNotificationsAsRead($emby_user_id): bool
+    {
+        $stmt = $this->db->prepare("UPDATE notifications SET is_read = 1 WHERE emby_user_id = :user_id AND is_read = 0");
+        $stmt->bindValue(':user_id', $emby_user_id, SQLITE3_TEXT);
+        $stmt->execute();
+        return $this->db->changes() > 0;
+    }
 }
+
 
 // ----------------------------------------------------
 // 全局初始化

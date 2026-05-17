@@ -62,4 +62,30 @@ return [
         'subject' => env('EMAIL_SUBJECT', 'Emby 媒体服务器邀请函'), //邮件主题
         'template_path' => __DIR__ . '/email_template.txt', 
     ],
+
+    // ------------------------------------------
+    // TMDB 配置 (求片系统海报墙)
+    // ------------------------------------------
+    'tmdb' => [
+        // TMDB API Key (申请地址: https://www.themoviedb.org/settings/api)
+        'api_key' => env('TMDB_API_KEY', ''), 
+        // 搜索结果返回的语言
+        'language' => env('TMDB_LANGUAGE', 'zh-CN'),
+    ],
+
+    // ------------------------------------------
+    // 通知配置 (求片处理结果通知)
+    // ------------------------------------------
+    'notification' => [
+        // 是否开启邮件通知 (站内通知默认开启)
+        'enable_request_email_notify' => filter_var(env('ENABLE_REQUEST_EMAIL_NOTIFY', false), FILTER_VALIDATE_BOOLEAN),
+    ],
+
+    // ------------------------------------------
+    // 自动封禁配置 (界面预留，功能暂不执行)
+    // ------------------------------------------
+    'auto_ban' => [
+        'enable' => filter_var(env('ENABLE_AUTO_BAN', false), FILTER_VALIDATE_BOOLEAN),
+        'days' => (int)env('AUTO_BAN_DAYS', 30),
+    ],
 ];
