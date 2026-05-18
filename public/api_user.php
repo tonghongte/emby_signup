@@ -1,7 +1,8 @@
 <?php
-session_start();
+require_once __DIR__ . '/../src/Auth.php';
+Auth::initSession();
 
-if (!isset($_SESSION['emby_user_id'])) {
+if (!Auth::checkUser()) {
     http_response_code(401);
     echo json_encode(['error' => 'Unauthorized']);
     exit;
@@ -15,6 +16,13 @@ if (!file_exists($db_file_path)) {
 }
 require_once $db_file_path;
 global $invite_db; // Instance created in database.php
+
+// 强制校验 CSRF Token，消灭跨站伪造隐患
+if (!Auth::verifyCsrf($_POST['csrf_token'] ?? '')) {
+    http_response_code(403);
+    echo json_encode(['status' => 'error', 'message' => 'CSRF 验证失败，请刷新页面重试。']);
+    exit;
+}
 
 $action = $_POST['action'] ?? '';
 $user_id = $_SESSION['emby_user_id'];

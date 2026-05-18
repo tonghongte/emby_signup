@@ -1,10 +1,6 @@
 <?php
-session_start();
-
-if (!isset($_SESSION['emby_user_id']) || !isset($_SESSION['emby_token'])) {
-    header("Location: login.php");
-    exit;
-}
+require_once __DIR__ . '/../src/Auth.php';
+Auth::requireUser();
 
 $config_path = __DIR__ . '/../config/config.php';
 $db_file_path = __DIR__ . '/../config/database.php';
@@ -23,8 +19,7 @@ $emby_token = $_SESSION['emby_token'];
 
 $base_url = rtrim($config['emby']['base_url'], '/');
 $emby_url = !empty($config['site']['login_url']) ? rtrim($config['site']['login_url'], '/') : $base_url;
-// Attempt SSO login link (Emby Web UI might accept api_key or app_token parameter, though it's client dependent, api_key is safest bet for some clients, otherwise they just log in normally)
-$emby_sso_url = "{$emby_url}/web/index.html#!/home.html?api_key={$emby_token}";
+$emby_sso_url = $emby_url;
 
 // Fetch initial data
 $requests = $invite_db->getUserRequests($user_id);
@@ -33,7 +28,6 @@ $unread_count = $invite_db->getUnreadNotificationCount($user_id);
 
 $global_user_email_enabled = $config['notification']['enable_user_email_notify'] ?? false;
 $user_email_pref = $invite_db->getUserEmailPreference($user_id);
-
 ?>
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -45,347 +39,21 @@ $user_email_pref = $invite_db->getUserEmailPreference($user_id);
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --bg-color: #0f172a;
-            --card-bg: rgba(30, 41, 59, 0.7);
-            --primary: #52B54B; 
-            --primary-hover: #43943d;
-            --text-main: #f8fafc;
-            --text-sub: #94a3b8;
-            --input-bg: rgba(15, 23, 42, 0.6);
-            --border-color: rgba(255, 255, 255, 0.1);
-            --blur-amt: 16px;
-            --danger: #ef4444;
-            --warning: #f59e0b;
-        }
+    
+    <!-- 引入系统通用与用户专有样式 -->
+    <link rel="stylesheet" href="assets/css/common.css">
+    <link rel="stylesheet" href="assets/css/user.css">
 
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-
-        body {
-            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-main);
-            min-height: 100vh;
-            padding-bottom: 60px;
-        }
-
-        .bg-blob {
-            position: fixed;
-            border-radius: 50%;
-            filter: blur(80px);
-            z-index: -1;
-            opacity: 0.4;
-            animation: float 10s infinite ease-in-out;
-        }
-        .blob-1 { top: -10%; left: -10%; width: 500px; height: 500px; background: #4f46e5; animation-delay: 0s; }
-        .blob-2 { bottom: -10%; right: -10%; width: 400px; height: 400px; background: #52B54B; animation-delay: -5s; }
-
-        @keyframes float {
-            0%, 100% { transform: translate(0, 0); }
-            50% { transform: translate(30px, 50px); }
-        }
-
-        /* Navbar */
-        .navbar {
-            background: rgba(15, 23, 42, 0.8);
-            backdrop-filter: blur(var(--blur-amt));
-            border-bottom: 1px solid var(--border-color);
-            padding: 16px 40px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }
-
-        .nav-brand {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            font-weight: 700;
-            font-size: 18px;
-            color: white;
-            text-decoration: none;
-        }
-        .nav-brand img { width: 32px; height: 32px; border-radius: 8px; }
-
-        .nav-links {
-            display: flex;
-            align-items: center;
-            gap: 24px;
-        }
-
-        .btn-emby {
-            background: linear-gradient(135deg, var(--primary) 0%, #3d8c38 100%);
-            color: white;
-            padding: 8px 16px;
-            border-radius: 8px;
-            text-decoration: none;
-            font-weight: 600;
-            font-size: 14px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-        .btn-emby:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(82, 181, 75, 0.3);
-        }
-        .btn-portal {
-            background: rgba(255,255,255,0.05); color: var(--text-sub); border: 1px solid rgba(255,255,255,0.1);
-            padding: 8px 16px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;
-            display: flex; align-items: center; gap: 8px; transition: all 0.2s, box-shadow 0.2s;
-        }
-        .btn-portal:hover { transform: translateY(-2px); background: rgba(255,255,255,0.15); color: white; border-color: rgba(255,255,255,0.2); }
-
-        .notification-bell {
-            position: relative;
-            cursor: pointer;
-            color: var(--text-sub);
-            transition: color 0.2s;
-        }
-        .notification-bell:hover { color: white; }
-        .badge {
-            position: absolute;
-            top: -6px;
-            right: -8px;
-            background: var(--danger);
-            color: white;
-            font-size: 10px;
-            font-weight: bold;
-            padding: 2px 6px;
-            border-radius: 10px;
-            display: <?php echo $unread_count > 0 ? 'block' : 'none'; ?>;
-        }
-
-        .logout-link { color: var(--text-sub); text-decoration: none; font-size: 14px; transition: color 0.2s; }
-        .logout-link:hover { color: var(--danger); }
-
-        /* Main Container */
-        .container {
-            max-width: 1200px;
-            margin: 40px auto;
-            padding: 0 20px;
-            display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 24px;
-        }
-
-        .card {
-            background: var(--card-bg);
-            backdrop-filter: blur(var(--blur-amt));
-            border: 1px solid var(--border-color);
-            border-radius: 20px;
-            padding: 24px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-        }
-
-        .card-header {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 20px;
-            color: white;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        /* Search Section */
-        .search-bar {
-            display: flex;
-            gap: 12px;
-            margin-bottom: 24px;
-        }
-        .search-bar input {
-            flex: 1;
-            padding: 12px 16px;
-            background: var(--input-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            color: white;
-            font-size: 15px;
-        }
-        .search-bar input:focus {
-            outline: none;
-            border-color: var(--primary);
-        }
-        .search-bar button {
-            background: var(--primary);
-            color: white;
-            border: none;
-            padding: 0 24px;
-            border-radius: 12px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-        .search-bar button:hover { background: var(--primary-hover); }
-
-        /* Unified Custom Scrollbar */
-        ::-webkit-scrollbar { width: 6px; height: 6px; background-color: transparent; }
-        ::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.2); border-radius: 10px; transition: background-color 0.3s; }
-        ::-webkit-scrollbar-thumb:hover { background-color: rgba(255, 255, 255, 0.35); }
-        * { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.2) transparent; }
-
-        /* Posters Grid */
-        .posters-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-            gap: 16px;
-            max-height: 500px;
-            overflow-y: auto;
-            padding-right: 8px;
-        }
-        
-        .poster-card {
-            position: relative;
-            border-radius: 12px;
-            overflow: hidden;
-            background: rgba(0,0,0,0.2);
-            aspect-ratio: 2/3;
-            cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-        .poster-card:hover {
-            transform: scale(1.05);
-            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-        }
-        .poster-card img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-        .poster-info {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: linear-gradient(transparent, rgba(0,0,0,0.9));
-            padding: 12px 8px;
-            transform: translateY(100%);
-            transition: transform 0.2s;
-        }
-        .poster-card:hover .poster-info { transform: translateY(0); }
-        .poster-title { font-size: 13px; font-weight: 600; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .poster-year { font-size: 11px; color: var(--text-sub); }
-
-        /* Requests List */
-        .requests-list {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            max-height: 600px;
-            overflow-y: auto;
-        }
-        
-        .request-item {
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(255,255,255,0.05);
-            border-radius: 12px;
-            padding: 12px;
-            display: flex;
-            gap: 12px;
-        }
-        .req-poster {
-            width: 48px;
-            height: 72px;
-            border-radius: 6px;
-            object-fit: cover;
-            background: rgba(0,0,0,0.2);
-        }
-        .req-details { flex: 1; display: flex; flex-direction: column; justify-content: center; }
-        .req-title { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
-        .req-date { font-size: 11px; color: var(--text-sub); }
-        .status-badge {
-            align-self: flex-start;
-            padding: 4px 8px;
-            border-radius: 6px;
-            font-size: 11px;
-            font-weight: 600;
-        }
-        .status-pending { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
-        .status-approved { background: rgba(82, 181, 75, 0.2); color: var(--primary); }
-        .status-rejected { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
-
-        /* Modal */
-        .modal-overlay {
-            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(8px); z-index: 1000;
-            align-items: center; justify-content: center; padding: 20px;
-        }
-        .modal-content {
-            background: #1e293b; padding: 24px; border-radius: 16px; max-width: 500px; width: 100%;
-            border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 25px 50px rgba(0,0,0,0.5);
-            animation: zoomIn 0.2s ease-out;
-        }
-        .modal-header { font-size: 18px; font-weight: 600; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;}
-        .close-btn { background: transparent; border: none; color: var(--text-sub); cursor: pointer; font-size: 20px;}
-        .close-btn:hover { color: white; }
-        
-        .notification-list { max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;}
-        .notification-item { background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; }
-        .notif-title { font-size: 14px; font-weight: 600; margin-bottom: 4px; color: white;}
-        .notif-msg { font-size: 13px; color: var(--text-sub); line-height: 1.4;}
-        .notif-date { font-size: 11px; color: rgba(255,255,255,0.3); margin-top: 8px;}
-        .notif-unread { border-left: 3px solid var(--primary); }
-
-        @keyframes zoomIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
-        
-        #toast-container { position: fixed; top: 24px; left: 50%; transform: translateX(-50%) translateY(-20px); z-index: 2000; opacity: 0; transition: 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); pointer-events: none; }
-        #toast-container.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
-        .toast { background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); color: white; padding: 12px 28px; border-radius: 16px; font-size: 14px; font-weight: 500; border: 1px solid rgba(255,255,255,0.15); display: flex; align-items: center; gap: 10px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.4); }
-
-        .modal-title {
-            font-size: 18px;
-            font-weight: 700;
-            color: white;
-            margin-bottom: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-        }
-        .modal-btn {
-            background: white;
-            color: #0f172a;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 10px;
-            font-weight: 600;
-            cursor: pointer;
-            width: 100%;
-            transition: all 0.2s;
-        }
-        .modal-btn:hover {
-            background: #f1f5f9;
-            transform: scale(1.02);
-        }
-
-        @media (max-width: 768px) {
-            .container { grid-template-columns: 1fr; }
-            .navbar { padding: 16px 20px; }
-            .nav-brand span { display: none; }
-        }
-    </style>
+    <!-- 注入安全全局变量与客户端交互逻辑 -->
+    <script>
+        window.AppConfig = {
+            csrfToken: <?php echo json_encode(Auth::csrfToken()); ?>
+        };
+    </script>
+    <script src="assets/js/common.js"></script>
+    <script src="assets/js/user.js"></script>
 </head>
 <body>
-    <div id="toast-container"><div id="status-toast" class="toast"></div></div>
-    
-    <!-- Unified Confirmation Modal -->
-    <div id="confirm-modal-overlay" class="modal-overlay" style="display: none; z-index: 3000;">
-        <div class="modal-content" style="max-width: 340px;">
-            <div style="font-size: 32px; margin-bottom: 10px;">⚠️</div>
-            <div id="confirm-modal-title" class="modal-title" style="font-size: 18px; margin-bottom: 12px;">确认操作</div>
-            <p id="confirm-modal-text" style="color: white; margin-bottom: 24px; font-size: 14px; line-height: 1.5;"></p>
-            <div style="display: flex; gap: 12px; width: 100%;">
-                <button id="confirm-modal-cancel-btn" class="modal-btn" style="background: rgba(255,255,255,0.1); color: white; width: 50%;">取消</button>
-                <button id="confirm-modal-ok-btn" class="modal-btn" style="background: var(--primary); color: white; width: 50%;">确定</button>
-            </div>
-        </div>
-    </div>
     <div class="bg-blob blob-1"></div>
     <div class="bg-blob blob-2"></div>
 
@@ -407,14 +75,14 @@ $user_email_pref = $invite_db->getUserEmailPreference($user_id);
             <?php endif; ?>
             <div class="notification-bell" onclick="openNotifications()">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-                <span class="badge" id="notif-badge"><?php echo $unread_count; ?></span>
+                <span class="badge" id="notif-badge" style="<?php echo $unread_count > 0 ? '' : 'display:none;'; ?>"><?php echo $unread_count; ?></span>
             </div>
             <a href="login.php?action=logout" class="logout-link">退出</a>
         </div>
     </nav>
 
     <div class="container">
-        <!-- Left Column: Search & Request -->
+        <!-- 左侧栏：TMDB求片搜索与选择 -->
         <div class="card">
             <div class="card-header">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
@@ -429,12 +97,11 @@ $user_email_pref = $invite_db->getUserEmailPreference($user_id);
             <div id="error-msg" style="display:none; color:var(--danger); text-align:center; padding: 10px;"></div>
             
             <div class="posters-grid" id="search-results">
-                <!-- Results will be injected here -->
                 <div style="grid-column: 1/-1; text-align:center; color:rgba(255,255,255,0.2); padding: 40px 0;">搜索结果将显示在这里</div>
             </div>
         </div>
 
-        <!-- Right Column: My Requests -->
+        <!-- 右侧栏：求片状态与偏好 -->
         <div class="card">
             <div class="card-header" style="justify-content: space-between;">
                 <div style="display:flex; align-items:center; gap:8px;">
@@ -473,7 +140,7 @@ $user_email_pref = $invite_db->getUserEmailPreference($user_id);
         </div>
     </div>
 
-    <!-- Notifications Modal -->
+    <!-- 站内通知模态框 -->
     <div class="modal-overlay" id="notif-modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -499,7 +166,7 @@ $user_email_pref = $invite_db->getUserEmailPreference($user_id);
         </div>
     </div>
 
-    <!-- Request Confirm Modal -->
+    <!-- 详情求片确认模态框 -->
     <div class="modal-overlay" id="confirm-modal">
         <div class="modal-content" style="max-width: 600px;">
             <div class="modal-header" style="color: white; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 16px; margin-bottom: 20px;">
@@ -529,262 +196,5 @@ $user_email_pref = $invite_db->getUserEmailPreference($user_id);
             </div>
         </div>
     </div>
-
-    <script>
-        let currentRequestData = null;
-
-        async function searchTMDB() {
-            const query = document.getElementById('search-input').value.trim();
-            if (!query) return;
-            
-            const resultsDiv = document.getElementById('search-results');
-            const loadingDiv = document.getElementById('loading');
-            const errorDiv = document.getElementById('error-msg');
-            
-            resultsDiv.innerHTML = '';
-            errorDiv.style.display = 'none';
-            loadingDiv.style.display = 'block';
-
-            try {
-                const response = await fetch(`api_tmdb.php?q=${encodeURIComponent(query)}`);
-                const data = await response.json();
-                
-                if (data.error) throw new Error(data.error);
-
-                loadingDiv.style.display = 'none';
-                
-                if (!data.results || data.results.length === 0) {
-                    resultsDiv.innerHTML = '<div style="grid-column: 1/-1; text-align:center; color:rgba(255,255,255,0.3);">未找到相关结果</div>';
-                    return;
-                }
-
-                data.results.forEach(item => {
-                    if (item.media_type !== 'movie' && item.media_type !== 'tv') return;
-                    
-                    const title = item.title || item.name;
-                    const date = item.release_date || item.first_air_date || '';
-                    const year = date ? date.substring(0, 4) : '';
-                    const poster = item.poster_path ? `https://image.tmdb.org/t/p/w200${item.poster_path}` : '';
-                    const posterDisplay = poster || 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIj48cmVjdCB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgZmlsbD0iIzIyMiIvPjwvc3ZnPg==';
-
-                    const card = document.createElement('div');
-                    card.className = 'poster-card';
-                    card.innerHTML = `
-                        <img src="${posterDisplay}" alt="${title}" loading="lazy">
-                        <div class="poster-info">
-                            <div class="poster-title">${title}</div>
-                            <div class="poster-year">${year} ${item.media_type === 'tv' ? '(剧集)' : ''}</div>
-                        </div>
-                    `;
-                    
-                    card.onclick = () => {
-                        currentRequestData = {
-                            tmdb_id: item.id,
-                            title: title + (year ? ` (${year})` : ''),
-                            poster_url: poster,
-                            media_type: item.media_type
-                        };
-                        document.getElementById('confirm-title').innerText = currentRequestData.title;
-                        document.getElementById('confirm-poster').src = posterDisplay;
-                        document.getElementById('confirm-date-val').innerText = date || '未知日期';
-                        document.getElementById('confirm-rating-val').innerText = item.vote_average ? parseFloat(item.vote_average).toFixed(1) : '暂无评分';
-                        document.getElementById('confirm-overview').innerText = item.overview || '暂无简介内容。';
-                        document.getElementById('confirm-modal').style.display = 'flex';
-                    };
-                    
-                    resultsDiv.appendChild(card);
-                });
-
-            } catch (err) {
-                loadingDiv.style.display = 'none';
-                errorDiv.innerText = err.message;
-                errorDiv.style.display = 'block';
-            }
-        }
-
-        function displayToast(msg, type = 'info') {
-            const container = document.getElementById('toast-container');
-            const toast = document.getElementById('status-toast');
-            let icon = 'ℹ️';
-            if (type === 'success' || msg.includes('成功') || msg.includes('已')) icon = '✅';
-            if (type === 'error' || msg.includes('失败') || msg.includes('错误') || msg.includes('出错')) icon = '❌';
-            toast.innerHTML = `<span style="font-size: 16px;">${icon}</span> <span>${msg}</span>`;
-            container.classList.add('show');
-            setTimeout(() => container.classList.remove('show'), 3000);
-        }
-
-        document.getElementById('submit-req-btn').onclick = async () => {
-            if (!currentRequestData) return;
-            const btn = document.getElementById('submit-req-btn');
-            btn.disabled = true;
-            btn.innerText = '提交中...';
-
-            try {
-                const formData = new URLSearchParams();
-                formData.append('action', 'submit_request');
-                formData.append('tmdb_id', currentRequestData.tmdb_id);
-                formData.append('title', currentRequestData.title);
-                formData.append('poster_url', currentRequestData.poster_url);
-                formData.append('media_type', currentRequestData.media_type);
-
-                const response = await fetch('api_user.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: formData.toString()
-                });
-                
-                const data = await response.json();
-                displayToast(data.message);
-                if (data.status === 'success') {
-                    setTimeout(() => location.reload(), 1500);
-                }
-            } catch (e) {
-                displayToast('提交出错');
-            } finally {
-                btn.disabled = false;
-                 btn.innerText = '确认提交';
-                document.getElementById('confirm-modal').style.display = 'none';
-            }
-        };
-
-        function showConfirm(title, message, onConfirm) {
-            const overlay = document.getElementById('confirm-modal-overlay');
-            const titleEl = document.getElementById('confirm-modal-title');
-            const textEl = document.getElementById('confirm-modal-text');
-            const cancelBtn = document.getElementById('confirm-modal-cancel-btn');
-            const okBtn = document.getElementById('confirm-modal-ok-btn');
-            
-            titleEl.innerText = title;
-            textEl.innerText = message;
-            overlay.style.display = 'flex';
-            
-            const cleanup = () => {
-                overlay.style.display = 'none';
-                const newCancel = cancelBtn.cloneNode(true);
-                const newOk = okBtn.cloneNode(true);
-                cancelBtn.parentNode.replaceChild(newCancel, cancelBtn);
-                okBtn.parentNode.replaceChild(newOk, okBtn);
-            };
-            
-            document.getElementById('confirm-modal-cancel-btn').onclick = cleanup;
-            document.getElementById('confirm-modal-ok-btn').onclick = () => {
-                cleanup();
-                if (typeof onConfirm === 'function') onConfirm();
-            };
-        }
-
-        async function clearNotifications() {
-            showConfirm('清空通知', '确定要清空您所有的站内通知吗？此操作不可恢复。', async () => {
-                try {
-                    const formData = new URLSearchParams();
-                    formData.append('action', 'clear_notifications');
-                    
-                    const response = await fetch('api_user.php', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: formData.toString()
-                    });
-                    const data = await response.json();
-                    displayToast(data.message);
-                    if (data.status === 'success') {
-                        const notifList = document.querySelector('.notification-list');
-                        if (notifList) {
-                            notifList.innerHTML = '<div style="text-align:center; color:rgba(255,255,255,0.3); padding: 20px;">暂无通知</div>';
-                        }
-                        const badge = document.getElementById('notif-badge');
-                        if (badge) {
-                            badge.style.display = 'none';
-                            badge.innerText = '0';
-                        }
-                    }
-                } catch (e) {
-                    displayToast('操作失败，网络错误');
-                }
-            });
-        }
-
-        function openNotifications() {
-            document.getElementById('notif-modal').style.display = 'flex';
-            const badge = document.getElementById('notif-badge');
-            if (badge.style.display !== 'none') {
-                // Mark as read
-                fetch('api_user.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: 'action=mark_read'
-                });
-                badge.style.display = 'none';
-                document.querySelectorAll('.notif-unread').forEach(el => el.classList.remove('notif-unread'));
-            }
-        }
-
-        function closeNotifications() {
-            document.getElementById('notif-modal').style.display = 'none';
-        }
-
-        async function saveEmailPref(enabled) {
-            try {
-                const formData = new URLSearchParams();
-                formData.append('action', 'save_email_pref');
-                formData.append('enabled', enabled ? '1' : '0');
-
-                const response = await fetch('api_user.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: formData.toString()
-                });
-                const data = await response.json();
-                if (data.status !== 'success') {
-                    displayToast('保存设置失败');
-                } else {
-                    displayToast('设置已保存');
-                }
-            } catch (e) {
-                displayToast('网络错误');
-            }
-        }
-
-        // Background Polling for live status updates
-        async function pollUserData() {
-            try {
-                const formData = new URLSearchParams();
-                formData.append('action', 'poll_data');
-                
-                const response = await fetch('api_user.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: formData.toString()
-                });
-                const data = await response.json();
-                
-                if (data.status === 'success') {
-                    // Update requests
-                    document.getElementById('my-requests').innerHTML = data.requests_html;
-                    
-                    // Update notifications list
-                    const notifList = document.querySelector('.notification-list');
-                    if (notifList) notifList.innerHTML = data.notifications_html;
-                    
-                    // Update unread badge
-                    const badge = document.getElementById('notif-badge');
-                    if (badge) {
-                        badge.innerText = data.unread_count;
-                        badge.style.display = data.unread_count > 0 ? 'block' : 'none';
-                    }
-                }
-            } catch (e) {
-                console.error("Polling error", e);
-            }
-        }
-        
-        // Start polling every 8 seconds
-        setInterval(pollUserData, 8000);
-
-        // Close modals on outside click
-        window.onclick = function(event) {
-            if (event.target == document.getElementById('notif-modal')) closeNotifications();
-            if (event.target == document.getElementById('confirm-modal')) document.getElementById('confirm-modal').style.display = 'none';
-        }
-    </script>
 </body>
 </html>

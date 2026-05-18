@@ -7,9 +7,11 @@ if (__FILE__ === realpath($_SERVER['SCRIPT_FILENAME'])) {
     exit("Access Denied");
 }
 
-function env($key, $default = null) {
-    $value = getenv($key);
-    return $value === false ? $default : $value;
+if (!function_exists('env')) {
+    function env($key, $default = null) {
+        $value = getenv($key);
+        return $value === false ? $default : $value;
+    }
 }
 
 return [
@@ -76,11 +78,11 @@ return [
     ],
 
     // ------------------------------------------
-    // 通知配置 (求片处理结果通知)
+    // 通知配置 (求片处理结果与管理员新求片通知)
     // ------------------------------------------
     'notification' => [
-        // 是否开启邮件通知 (站内通知默认开启)
-        'enable_request_email_notify' => filter_var(env('ENABLE_REQUEST_EMAIL_NOTIFY', false), FILTER_VALIDATE_BOOLEAN),
+        'enable_admin_email_notify' => filter_var(env('ENABLE_ADMIN_EMAIL_NOTIFY', false), FILTER_VALIDATE_BOOLEAN),
+        'enable_user_email_notify' => filter_var(env('ENABLE_USER_EMAIL_NOTIFY', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
     // ------------------------------------------
