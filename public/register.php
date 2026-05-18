@@ -513,7 +513,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </form>
 
             <div class="status-link">
-                <a href="./admin.php" target="_blank">邀请码管理</a>
+                <a href="./login.php">已有账号？去登录</a>
             </div>
         </div>
 

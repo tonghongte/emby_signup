@@ -71,6 +71,8 @@ return [
         'api_key' => env('TMDB_API_KEY', ''), 
         // 搜索结果返回的语言
         'language' => env('TMDB_LANGUAGE', 'zh-CN'),
+        // TMDB 代理配置
+        'proxy' => env('TMDB_PROXY', ''), // HTTP Proxy, e.g. tcp://127.0.0.1:7890
     ],
 
     // ------------------------------------------

@@ -35,12 +35,13 @@ class InviteDB
      */
     private function initTable(): void
     {
-        $sql = "CREATE TABLE IF NOT EXISTS invite_codes (
+        $this->db->exec("CREATE TABLE IF NOT EXISTS invite_codes (
             code TEXT PRIMARY KEY NOT NULL,
             used INTEGER DEFAULT 0 NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE TABLE IF NOT EXISTS requests (
+        )");
+        
+        $this->db->exec("CREATE TABLE IF NOT EXISTS requests (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             emby_user_id TEXT NOT NULL,
             emby_username TEXT NOT NULL,
@@ -51,18 +52,22 @@ class InviteDB
             status TEXT DEFAULT 'pending',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE TABLE IF NOT EXISTS notifications (
+        )");
+        
+        $this->db->exec("CREATE TABLE IF NOT EXISTS notifications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             emby_user_id TEXT NOT NULL,
             title TEXT NOT NULL,
             message TEXT,
             is_read INTEGER DEFAULT 0,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );";
+        )");
 
-        $this->db->exec($sql);
-        
+        $this->db->exec("CREATE TABLE IF NOT EXISTS user_settings (
+            emby_user_id TEXT PRIMARY KEY NOT NULL,
+            email_notify_enabled INTEGER DEFAULT 1
+        )");
+
         // 启用 WAL 模式以提高并发写入性能
         $this->db->exec('PRAGMA journal_mode = wal;');
     }
@@ -204,8 +209,10 @@ class InviteDB
     public function getUserRequests($emby_user_id): array
     {
         $stmt = $this->db->prepare("SELECT * FROM requests WHERE emby_user_id = :user_id ORDER BY created_at DESC");
+        if (!$stmt) return [];
         $stmt->bindValue(':user_id', $emby_user_id, SQLITE3_TEXT);
         $result = $stmt->execute();
+        if (!$result) return [];
         $requests = [];
         while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
             $requests[] = $row;
@@ -245,6 +252,29 @@ class InviteDB
         return $this->db->changes() > 0;
     }
 
+    public function deleteRequest($id, $emby_user_id = null): bool
+    {
+        $sql = "DELETE FROM requests WHERE id = :id";
+        if ($emby_user_id !== null) {
+            $sql .= " AND emby_user_id = :user_id";
+        }
+        $stmt = $this->db->prepare($sql);
+        $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+        if ($emby_user_id !== null) {
+            $stmt->bindValue(':user_id', $emby_user_id, SQLITE3_TEXT);
+        }
+        $stmt->execute();
+        return $this->db->changes() > 0;
+    }
+
+    public function deleteExpiredRequests(int $days): int
+    {
+        $stmt = $this->db->prepare("DELETE FROM requests WHERE datetime(created_at) < datetime('now', '-' || :days || ' days')");
+        $stmt->bindValue(':days', $days, SQLITE3_INTEGER);
+        $stmt->execute();
+        return $this->db->changes();
+    }
+
     public function addNotification($emby_user_id, $title, $message): bool
     {
         $stmt = $this->db->prepare('INSERT INTO notifications (emby_user_id, title, message) VALUES (:user_id, :title, :message)');
@@ -263,8 +293,10 @@ class InviteDB
         }
         $sql .= " ORDER BY created_at DESC";
         $stmt = $this->db->prepare($sql);
+        if (!$stmt) return [];
         $stmt->bindValue(':user_id', $emby_user_id, SQLITE3_TEXT);
         $result = $stmt->execute();
+        if (!$result) return [];
         $notifications = [];
         while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
             $notifications[] = $row;
@@ -275,6 +307,7 @@ class InviteDB
     public function getUnreadNotificationCount($emby_user_id): int
     {
         $stmt = $this->db->prepare("SELECT COUNT(*) as count FROM notifications WHERE emby_user_id = :user_id AND is_read = 0");
+        if (!$stmt) return 0;
         $stmt->bindValue(':user_id', $emby_user_id, SQLITE3_TEXT);
         $result = $stmt->execute();
         if ($result && $row = $result->fetchArray(SQLITE3_ASSOC)) {
@@ -299,6 +332,26 @@ class InviteDB
         $stmt->execute();
         return $this->db->changes() > 0;
     }
+
+    public function getUserEmailPreference($emby_user_id): bool
+    {
+        $stmt = $this->db->prepare("SELECT email_notify_enabled FROM user_settings WHERE emby_user_id = :user_id");
+        $stmt->bindValue(':user_id', $emby_user_id, SQLITE3_TEXT);
+        $result = $stmt->execute();
+        if ($result && $row = $result->fetchArray(SQLITE3_ASSOC)) {
+            return (bool)$row['email_notify_enabled'];
+        }
+        return false; // Default to false if not set
+    }
+
+    public function setUserEmailPreference($emby_user_id, $enabled): bool
+    {
+        $stmt = $this->db->prepare("INSERT INTO user_settings (emby_user_id, email_notify_enabled) VALUES (:user_id, :enabled) ON CONFLICT(emby_user_id) DO UPDATE SET email_notify_enabled = :enabled");
+        $stmt->bindValue(':user_id', $emby_user_id, SQLITE3_TEXT);
+        $stmt->bindValue(':enabled', $enabled ? 1 : 0, SQLITE3_INTEGER);
+        $stmt->execute();
+        return $this->db->changes() > 0;
+    }
 }
 
 
@@ -311,4 +364,76 @@ $db_path = __DIR__ . '/invite_codes.sqlite';
 
 // 创建全局数据库实例
 $invite_db = new InviteDB($db_path);
+
+// ----------------------------------------------------
+// 工具函数：简易 SMTP 发送
+// ----------------------------------------------------
+function send_smtp_email($smtp_config, $to, $subject, $body) {
+    if (empty($smtp_config['host'])) return ['status' => false, 'message' => '未配置 SMTP'];
+    $host = $smtp_config['host'];
+    $port = $smtp_config['port'];
+    $username = $smtp_config['username'];
+    $password = $smtp_config['password'];
+    $from_name = $smtp_config['from_name'] ?? 'Emby';
+
+    $remote_socket = ($smtp_config['secure'] === 'ssl' ? 'ssl://' : '') . $host . ':' . $port;
+
+    $socket = @stream_socket_client($remote_socket, $errno, $errstr, 10);
+    if (!$socket) return ['status' => false, 'message' => "连接失败: $errstr ($errno)"];
+
+    $response_msg = "";
+    while ($line = fgets($socket, 515)) {
+        $response_msg .= $line;
+        if (substr($line, 3, 1) === ' ') break;
+    }
+
+    if (empty($response_msg) || substr($response_msg, 0, 3) != '220') return ['status' => false, 'message' => "SMTP 握手错误: $response_msg"];
+
+    $commands = [
+        "EHLO " . $_SERVER['HTTP_HOST'] . "\r\n" => 250,
+        "AUTH LOGIN\r\n" => 334,
+        base64_encode($username) . "\r\n" => 334,
+        base64_encode($password) . "\r\n" => 235,
+        "MAIL FROM: <$username>\r\n" => 250,
+        "RCPT TO: <$to>\r\n" => 250,
+        "DATA\r\n" => 354,
+    ];
+
+    foreach ($commands as $command => $expect_code) {
+        fwrite($socket, $command);
+        $last_line = '';
+        while ($line = fgets($socket, 515)) {
+            $last_line = $line;
+            if (substr($line, 3, 1) === ' ') break;
+        }
+        if (substr($last_line, 0, 3) != $expect_code) {
+            fclose($socket);
+            return ['status' => false, 'message' => "SMTP 错误 [$expect_code]: " . trim($last_line)];
+        }
+    }
+
+    $headers  = "MIME-Version: 1.0\r\n";
+    $headers .= "Content-type: text/plain; charset=utf-8\r\n";
+    $headers .= "From: =?UTF-8?B?".base64_encode($from_name)."?= <$username>\r\n";
+    $headers .= "To: <$to>\r\n";
+    $headers .= "Subject: =?UTF-8?B?".base64_encode($subject)."?=\r\n";
+    
+    $email_content = $headers . "\r\n" . $body . "\r\n.\r\n";
+    
+    fwrite($socket, $email_content);
+    
+    $last_line = '';
+    while ($line = fgets($socket, 515)) {
+        $last_line = $line;
+        if (substr($line, 3, 1) === ' ') break;
+    }
+    
+    $result = ['status' => true, 'message' => '邮件发送成功'];
+    if (substr($last_line, 0, 3) != 250) $result = ['status' => false, 'message' => "数据发送错误: " . trim($last_line)];
+
+    fwrite($socket, "QUIT\r\n");
+    fclose($socket);
+    
+    return $result;
+}
 ?>

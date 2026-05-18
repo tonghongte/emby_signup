@@ -37,9 +37,18 @@ $url = "https://api.themoviedb.org/3/search/multi?api_key={$tmdb_api_key}&langua
 $options = [
     'http' => [
         'method' => 'GET',
-        'header' => "Accept: application/json\r\n"
+        'header' => "Accept: application/json\r\n",
+        'ignore_errors' => true
     ]
 ];
+
+$tmdb_proxy = trim($config['tmdb']['proxy'] ?? '');
+if (!empty($tmdb_proxy)) {
+    // PHP's stream context proxy expects tcp:// format
+    $tmdb_proxy = str_replace(['http://', 'https://'], 'tcp://', $tmdb_proxy);
+    $options['http']['proxy'] = $tmdb_proxy;
+    $options['http']['request_fulluri'] = true;
+}
 
 $context = stream_context_create($options);
 $response = @file_get_contents($url, false, $context);

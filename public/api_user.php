@@ -45,6 +45,18 @@ if ($action === 'submit_request') {
     $success = $invite_db->addRequest($user_id, $username, $tmdb_id, $title, $poster_url, $media_type);
     
     if ($success) {
+        $config_path = __DIR__ . '/../config/config.php';
+        if (file_exists($config_path)) {
+            $config = require $config_path;
+            if ($config['notification']['enable_admin_email_notify'] ?? false) {
+                $admin_email = $config['smtp']['username'];
+                if ($admin_email) {
+                    $subject = "新求片提醒: {$title}";
+                    $body = "用户 {$username} 提交了新的求片申请：\r\n\r\n名称: {$title}\r\nTMDB ID: {$tmdb_id}\r\n类型: {$media_type}\r\n\r\n请前往管理后台处理。";
+                    send_smtp_email($config['smtp'], $admin_email, $subject, $body);
+                }
+            }
+        }
         echo json_encode(['status' => 'success', 'message' => '求片申请提交成功！']);
     } else {
         echo json_encode(['status' => 'error', 'message' => '提交失败，请稍后再试。']);
@@ -58,6 +70,14 @@ if ($action === 'submit_request') {
         $invite_db->markAllNotificationsAsRead($user_id);
     }
     echo json_encode(['status' => 'success']);
+    exit;
+} elseif ($action === 'save_email_pref') {
+    $enabled = ($_POST['enabled'] ?? '0') === '1';
+    if ($invite_db->setUserEmailPreference($user_id, $enabled)) {
+        echo json_encode(['status' => 'success']);
+    } else {
+        echo json_encode(['status' => 'error']);
+    }
     exit;
 }
 

@@ -21,7 +21,8 @@ $user_id = $_SESSION['emby_user_id'];
 $username = $_SESSION['emby_username'];
 $emby_token = $_SESSION['emby_token'];
 
-$emby_url = rtrim($config['emby']['base_url'], '/');
+$base_url = rtrim($config['emby']['base_url'], '/');
+$emby_url = !empty($config['site']['login_url']) ? rtrim($config['site']['login_url'], '/') : $base_url;
 // Attempt SSO login link (Emby Web UI might accept api_key or app_token parameter, though it's client dependent, api_key is safest bet for some clients, otherwise they just log in normally)
 $emby_sso_url = "{$emby_url}/web/index.html#!/home.html?api_key={$emby_token}";
 
@@ -29,6 +30,9 @@ $emby_sso_url = "{$emby_url}/web/index.html#!/home.html?api_key={$emby_token}";
 $requests = $invite_db->getUserRequests($user_id);
 $notifications = $invite_db->getUserNotifications($user_id);
 $unread_count = $invite_db->getUnreadNotificationCount($user_id);
+
+$global_user_email_enabled = $config['notification']['enable_user_email_notify'] ?? false;
+$user_email_pref = $invite_db->getUserEmailPreference($user_id);
 
 ?>
 <!DOCTYPE html>
@@ -130,6 +134,12 @@ $unread_count = $invite_db->getUnreadNotificationCount($user_id);
             transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(82, 181, 75, 0.3);
         }
+        .btn-portal {
+            background: rgba(255,255,255,0.05); color: var(--text-sub); border: 1px solid rgba(255,255,255,0.1);
+            padding: 8px 16px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;
+            display: flex; align-items: center; gap: 8px; transition: all 0.2s, box-shadow 0.2s;
+        }
+        .btn-portal:hover { transform: translateY(-2px); background: rgba(255,255,255,0.15); color: white; border-color: rgba(255,255,255,0.2); }
 
         .notification-bell {
             position: relative;
@@ -343,6 +353,12 @@ $unread_count = $invite_db->getUnreadNotificationCount($user_id);
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
                 进入 Emby
             </a>
+            <?php if (!empty($_SESSION['admin_logged_in'])): ?>
+            <a href="admin.php" class="btn-portal">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                返回管理后台
+            </a>
+            <?php endif; ?>
             <div class="notification-bell" onclick="openNotifications()">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
                 <span class="badge" id="notif-badge"><?php echo $unread_count; ?></span>
@@ -374,9 +390,18 @@ $unread_count = $invite_db->getUnreadNotificationCount($user_id);
 
         <!-- Right Column: My Requests -->
         <div class="card">
-            <div class="card-header">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                我的求片
+            <div class="card-header" style="justify-content: space-between;">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                    我的求片
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: normal; color: var(--text-sub);">
+                    <input type="checkbox" id="user-email-pref" <?php echo $user_email_pref ? 'checked' : ''; ?> <?php echo !$global_user_email_enabled ? 'disabled' : ''; ?> onchange="saveEmailPref(this.checked)">
+                    <label for="user-email-pref" style="<?php echo !$global_user_email_enabled ? 'opacity:0.5;' : ''; ?> cursor:pointer;">
+                        接收处理结果邮件
+                        <?php if(!$global_user_email_enabled) echo '(管理员未开启)'; ?>
+                    </label>
+                </div>
             </div>
             <div class="requests-list" id="my-requests">
                 <?php if (empty($requests)): ?>
@@ -427,13 +452,31 @@ $unread_count = $invite_db->getUnreadNotificationCount($user_id);
 
     <!-- Request Confirm Modal -->
     <div class="modal-overlay" id="confirm-modal">
-        <div class="modal-content" style="max-width: 400px; text-align: center;">
-            <div class="modal-header" style="justify-content: center; color: white;">确认求片？</div>
-            <img id="confirm-poster" src="" style="width: 120px; border-radius: 8px; margin: 10px auto; display: block; box-shadow: 0 4px 10px rgba(0,0,0,0.5);">
-            <h3 id="confirm-title" style="margin-bottom: 20px;"></h3>
-            <div style="display: flex; gap: 12px; justify-content: center;">
-                <button onclick="document.getElementById('confirm-modal').style.display='none'" style="padding: 10px 20px; border-radius: 8px; border:none; background: rgba(255,255,255,0.1); color: white; cursor: pointer;">取消</button>
-                <button id="submit-req-btn" style="padding: 10px 20px; border-radius: 8px; border:none; background: var(--primary); color: white; cursor: pointer; font-weight: bold;">确认提交</button>
+        <div class="modal-content" style="max-width: 600px;">
+            <div class="modal-header" style="color: white; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 16px; margin-bottom: 20px;">
+                媒体详细信息
+                <button class="close-btn" onclick="document.getElementById('confirm-modal').style.display='none'">×</button>
+            </div>
+            <div style="display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 24px;">
+                <img id="confirm-poster" src="" style="width: 140px; height: 210px; object-fit: cover; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); flex-shrink: 0;">
+                <div style="flex: 1; min-width: 250px; display: flex; flex-direction: column; gap: 12px;">
+                    <h2 id="confirm-title" style="color: white; font-size: 22px; line-height: 1.3;"></h2>
+                    <div style="display: flex; gap: 16px; font-size: 14px; color: var(--text-sub);">
+                        <span id="confirm-date" style="display: flex; align-items: center; gap: 4px;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                            <span id="confirm-date-val"></span>
+                        </span>
+                        <span id="confirm-rating" style="display: flex; align-items: center; gap: 4px; color: var(--warning);">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+                            <span id="confirm-rating-val"></span>
+                        </span>
+                    </div>
+                    <div id="confirm-overview" style="font-size: 14px; color: rgba(255,255,255,0.7); line-height: 1.6; max-height: 120px; overflow-y: auto; padding-right: 8px;"></div>
+                </div>
+            </div>
+            <div style="display: flex; gap: 12px; justify-content: flex-end; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 20px;">
+                <button onclick="document.getElementById('confirm-modal').style.display='none'" style="padding: 10px 24px; border-radius: 8px; border:none; background: rgba(255,255,255,0.1); color: white; cursor: pointer; transition: 0.2s;">取消</button>
+                <button id="submit-req-btn" style="padding: 10px 24px; border-radius: 8px; border:none; background: var(--primary); color: white; cursor: pointer; font-weight: bold; transition: 0.2s;">确认求片</button>
             </div>
         </div>
     </div>
@@ -494,6 +537,9 @@ $unread_count = $invite_db->getUnreadNotificationCount($user_id);
                         };
                         document.getElementById('confirm-title').innerText = currentRequestData.title;
                         document.getElementById('confirm-poster').src = posterDisplay;
+                        document.getElementById('confirm-date-val').innerText = date || '未知日期';
+                        document.getElementById('confirm-rating-val').innerText = item.vote_average ? parseFloat(item.vote_average).toFixed(1) : '暂无评分';
+                        document.getElementById('confirm-overview').innerText = item.overview || '暂无简介内容。';
                         document.getElementById('confirm-modal').style.display = 'flex';
                     };
                     
@@ -556,6 +602,26 @@ $unread_count = $invite_db->getUnreadNotificationCount($user_id);
 
         function closeNotifications() {
             document.getElementById('notif-modal').style.display = 'none';
+        }
+
+        async function saveEmailPref(enabled) {
+            try {
+                const formData = new URLSearchParams();
+                formData.append('action', 'save_email_pref');
+                formData.append('enabled', enabled ? '1' : '0');
+
+                const response = await fetch('api_user.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: formData.toString()
+                });
+                const data = await response.json();
+                if (data.status !== 'success') {
+                    alert('保存设置失败');
+                }
+            } catch (e) {
+                alert('网络错误');
+            }
         }
 
         // Close modals on outside click

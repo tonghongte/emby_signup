@@ -34,12 +34,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($username) || empty($password)) {
         $message = '用户名和密码不能为空！';
     } else {
+        // 1. Check fallback admin account first
+        if ($username === $config['admin']['username'] && $password === $config['admin']['password']) {
+            $_SESSION['admin_logged_in'] = true;
+            if (empty($_SESSION['csrf_token'])) $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+            header("Location: admin.php");
+            exit;
+        }
+
+        // 2. Emby authentication
         $emby_url = rtrim($config['emby']['base_url'], '/');
-        
-        // Emby authentication endpoint
         $auth_url = "{$emby_url}/emby/Users/AuthenticateByName";
-        
-        // Emby requires an Authorization header for authentication requests to identify the client
         $auth_header = 'Emby Client="Emby Signup Portal", Device="Web", DeviceId="portal_web_client", Version="1.0.0"';
 
         $data = array(
@@ -52,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'header'  => "Content-type: application/json\r\nAuthorization: " . $auth_header . "\r\n",
                 'method'  => 'POST',
                 'content' => json_encode($data),
-                'ignore_errors' => true // To catch 401 Unauthorized
+                'ignore_errors' => true
             )
         );
 
@@ -75,10 +80,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['emby_username'] = $response['User']['Name'];
                 $_SESSION['emby_token'] = $response['AccessToken'];
                 
-                header("Location: user.php");
+                // Check if user is an Emby Administrator
+                if (!empty($response['User']['Policy']['IsAdministrator'])) {
+                    $_SESSION['admin_logged_in'] = true;
+                    if (empty($_SESSION['csrf_token'])) $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+                    header("Location: admin.php");
+                } else {
+                    header("Location: user.php");
+                }
                 exit;
             } else {
-                // Login failed (usually 400 or 401)
                 $message = "用户名或密码错误！";
             }
         }
