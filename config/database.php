@@ -333,6 +333,28 @@ class InviteDB
         return $this->db->changes() > 0;
     }
 
+    public function clearUserNotifications($emby_user_id): bool
+    {
+        $stmt = $this->db->prepare("DELETE FROM notifications WHERE emby_user_id = :user_id");
+        $stmt->bindValue(':user_id', $emby_user_id, SQLITE3_TEXT);
+        $stmt->execute();
+        return $this->db->changes() > 0;
+    }
+
+    public function clearProcessedRequests(): bool
+    {
+        $stmt = $this->db->prepare("DELETE FROM requests WHERE status != 'pending'");
+        $stmt->execute();
+        return $this->db->changes() > 0;
+    }
+
+    public function clearAllRequests(): bool
+    {
+        $stmt = $this->db->prepare("DELETE FROM requests");
+        $stmt->execute();
+        return $this->db->changes() > 0;
+    }
+
     public function getUserEmailPreference($emby_user_id): bool
     {
         $stmt = $this->db->prepare("SELECT email_notify_enabled FROM user_settings WHERE emby_user_id = :user_id");

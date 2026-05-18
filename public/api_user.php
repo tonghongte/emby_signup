@@ -71,6 +71,10 @@ if ($action === 'submit_request') {
     }
     echo json_encode(['status' => 'success']);
     exit;
+} elseif ($action === 'clear_notifications') {
+    $invite_db->clearUserNotifications($user_id);
+    echo json_encode(['status' => 'success', 'message' => '所有通知已清空']);
+    exit;
 } elseif ($action === 'save_email_pref') {
     $enabled = ($_POST['enabled'] ?? '0') === '1';
     if ($invite_db->setUserEmailPreference($user_id, $enabled)) {
@@ -78,6 +82,63 @@ if ($action === 'submit_request') {
     } else {
         echo json_encode(['status' => 'error']);
     }
+    exit;
+} elseif ($action === 'poll_data') {
+    $requests = $invite_db->getUserRequests($user_id);
+    $notifications = $invite_db->getUserNotifications($user_id);
+    $unread_count = $invite_db->getUnreadNotificationCount($user_id);
+
+    // Render requests HTML
+    ob_start();
+    if (empty($requests)) {
+        ?>
+        <div style="text-align:center; color:rgba(255,255,255,0.2); padding: 20px 0;">暂无求片记录</div>
+        <?php
+    } else {
+        foreach ($requests as $req) {
+            $status_class = 'status-pending'; $status_text = '待处理';
+            if ($req['status'] === 'approved') { $status_class = 'status-approved'; $status_text = '已批准'; }
+            if ($req['status'] === 'rejected') { $status_class = 'status-rejected'; $status_text = '已拒绝'; }
+            $poster = $req['poster_url'] ?: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAiIGhlaWdodD0iMTUwIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjE1MCIgZmlsbD0iIzIyMiIvPjwvc3ZnPg==';
+            ?>
+            <div class="request-item">
+                <img src="<?php echo htmlspecialchars($poster); ?>" class="req-poster" alt="poster">
+                <div class="req-details">
+                    <div class="req-title"><?php echo htmlspecialchars($req['title']); ?></div>
+                    <div class="req-date"><?php echo date('Y-m-d', strtotime($req['created_at'])); ?></div>
+                </div>
+                <div class="status-badge <?php echo $status_class; ?>"><?php echo $status_text; ?></div>
+            </div>
+            <?php
+        }
+    }
+    $requests_html = ob_get_clean();
+
+    // Render notifications HTML
+    ob_start();
+    if (empty($notifications)) {
+        ?>
+        <div style="text-align:center; color:rgba(255,255,255,0.3); padding: 20px;">暂无通知</div>
+        <?php
+    } else {
+        foreach ($notifications as $notif) {
+            ?>
+            <div class="notification-item <?php echo $notif['is_read'] ? '' : 'notif-unread'; ?>">
+                <div class="notif-title"><?php echo htmlspecialchars($notif['title']); ?></div>
+                <div class="notif-msg"><?php echo nl2br(htmlspecialchars($notif['message'])); ?></div>
+                <div class="notif-date"><?php echo $notif['created_at']; ?></div>
+            </div>
+            <?php
+        }
+    }
+    $notifications_html = ob_get_clean();
+
+    echo json_encode([
+        'status' => 'success',
+        'unread_count' => $unread_count,
+        'requests_html' => $requests_html,
+        'notifications_html' => $notifications_html
+    ]);
     exit;
 }
 

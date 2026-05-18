@@ -224,6 +224,12 @@ $user_email_pref = $invite_db->getUserEmailPreference($user_id);
         }
         .search-bar button:hover { background: var(--primary-hover); }
 
+        /* Unified Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; background-color: transparent; }
+        ::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.2); border-radius: 10px; transition: background-color 0.3s; }
+        ::-webkit-scrollbar-thumb:hover { background-color: rgba(255, 255, 255, 0.35); }
+        * { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.2) transparent; }
+
         /* Posters Grid */
         .posters-grid {
             display: grid;
@@ -233,8 +239,6 @@ $user_email_pref = $invite_db->getUserEmailPreference($user_id);
             overflow-y: auto;
             padding-right: 8px;
         }
-        .posters-grid::-webkit-scrollbar { width: 6px; }
-        .posters-grid::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 10px; }
         
         .poster-card {
             position: relative;
@@ -276,8 +280,6 @@ $user_email_pref = $invite_db->getUserEmailPreference($user_id);
             max-height: 600px;
             overflow-y: auto;
         }
-        .requests-list::-webkit-scrollbar { width: 6px; }
-        .requests-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 10px; }
         
         .request-item {
             background: rgba(255,255,255,0.03);
@@ -332,6 +334,36 @@ $user_email_pref = $invite_db->getUserEmailPreference($user_id);
 
         @keyframes zoomIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
         
+        #toast-container { position: fixed; top: 24px; left: 50%; transform: translateX(-50%) translateY(-20px); z-index: 2000; opacity: 0; transition: 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); pointer-events: none; }
+        #toast-container.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+        .toast { background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); color: white; padding: 12px 28px; border-radius: 16px; font-size: 14px; font-weight: 500; border: 1px solid rgba(255,255,255,0.15); display: flex; align-items: center; gap: 10px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.4); }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: white;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .modal-btn {
+            background: white;
+            color: #0f172a;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            transition: all 0.2s;
+        }
+        .modal-btn:hover {
+            background: #f1f5f9;
+            transform: scale(1.02);
+        }
+
         @media (max-width: 768px) {
             .container { grid-template-columns: 1fr; }
             .navbar { padding: 16px 20px; }
@@ -340,6 +372,20 @@ $user_email_pref = $invite_db->getUserEmailPreference($user_id);
     </style>
 </head>
 <body>
+    <div id="toast-container"><div id="status-toast" class="toast"></div></div>
+    
+    <!-- Unified Confirmation Modal -->
+    <div id="confirm-modal-overlay" class="modal-overlay" style="display: none; z-index: 3000;">
+        <div class="modal-content" style="max-width: 340px;">
+            <div style="font-size: 32px; margin-bottom: 10px;">⚠️</div>
+            <div id="confirm-modal-title" class="modal-title" style="font-size: 18px; margin-bottom: 12px;">确认操作</div>
+            <p id="confirm-modal-text" style="color: white; margin-bottom: 24px; font-size: 14px; line-height: 1.5;"></p>
+            <div style="display: flex; gap: 12px; width: 100%;">
+                <button id="confirm-modal-cancel-btn" class="modal-btn" style="background: rgba(255,255,255,0.1); color: white; width: 50%;">取消</button>
+                <button id="confirm-modal-ok-btn" class="modal-btn" style="background: var(--primary); color: white; width: 50%;">确定</button>
+            </div>
+        </div>
+    </div>
     <div class="bg-blob blob-1"></div>
     <div class="bg-blob blob-2"></div>
 
@@ -431,7 +477,10 @@ $user_email_pref = $invite_db->getUserEmailPreference($user_id);
     <div class="modal-overlay" id="notif-modal">
         <div class="modal-content">
             <div class="modal-header">
-                站内通知
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <span>站内通知</span>
+                    <button class="btn-clear-notifs" onclick="clearNotifications()" style="background:transparent; border:1px solid rgba(255,255,255,0.15); color:var(--text-sub); font-size:11px; padding:3px 8px; border-radius:4px; cursor:pointer; transition:0.2s; font-weight:normal;" onmouseover="this.style.color='#ef4444'; this.style.borderColor='rgba(239,68,68,0.4)'; this.style.background='rgba(239,68,68,0.05)';" onmouseout="this.style.color='var(--text-sub)'; this.style.borderColor='rgba(255,255,255,0.15)'; this.style.background='transparent';">一键清空</button>
+                </div>
                 <button class="close-btn" onclick="closeNotifications()">×</button>
             </div>
             <div class="notification-list">
@@ -553,6 +602,17 @@ $user_email_pref = $invite_db->getUserEmailPreference($user_id);
             }
         }
 
+        function displayToast(msg, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.getElementById('status-toast');
+            let icon = 'ℹ️';
+            if (type === 'success' || msg.includes('成功') || msg.includes('已')) icon = '✅';
+            if (type === 'error' || msg.includes('失败') || msg.includes('错误') || msg.includes('出错')) icon = '❌';
+            toast.innerHTML = `<span style="font-size: 16px;">${icon}</span> <span>${msg}</span>`;
+            container.classList.add('show');
+            setTimeout(() => container.classList.remove('show'), 3000);
+        }
+
         document.getElementById('submit-req-btn').onclick = async () => {
             if (!currentRequestData) return;
             const btn = document.getElementById('submit-req-btn');
@@ -574,16 +634,74 @@ $user_email_pref = $invite_db->getUserEmailPreference($user_id);
                 });
                 
                 const data = await response.json();
-                alert(data.message);
-                if (data.status === 'success') location.reload();
+                displayToast(data.message);
+                if (data.status === 'success') {
+                    setTimeout(() => location.reload(), 1500);
+                }
             } catch (e) {
-                alert('提交出错');
+                displayToast('提交出错');
             } finally {
                 btn.disabled = false;
-                btn.innerText = '确认提交';
+                 btn.innerText = '确认提交';
                 document.getElementById('confirm-modal').style.display = 'none';
             }
         };
+
+        function showConfirm(title, message, onConfirm) {
+            const overlay = document.getElementById('confirm-modal-overlay');
+            const titleEl = document.getElementById('confirm-modal-title');
+            const textEl = document.getElementById('confirm-modal-text');
+            const cancelBtn = document.getElementById('confirm-modal-cancel-btn');
+            const okBtn = document.getElementById('confirm-modal-ok-btn');
+            
+            titleEl.innerText = title;
+            textEl.innerText = message;
+            overlay.style.display = 'flex';
+            
+            const cleanup = () => {
+                overlay.style.display = 'none';
+                const newCancel = cancelBtn.cloneNode(true);
+                const newOk = okBtn.cloneNode(true);
+                cancelBtn.parentNode.replaceChild(newCancel, cancelBtn);
+                okBtn.parentNode.replaceChild(newOk, okBtn);
+            };
+            
+            document.getElementById('confirm-modal-cancel-btn').onclick = cleanup;
+            document.getElementById('confirm-modal-ok-btn').onclick = () => {
+                cleanup();
+                if (typeof onConfirm === 'function') onConfirm();
+            };
+        }
+
+        async function clearNotifications() {
+            showConfirm('清空通知', '确定要清空您所有的站内通知吗？此操作不可恢复。', async () => {
+                try {
+                    const formData = new URLSearchParams();
+                    formData.append('action', 'clear_notifications');
+                    
+                    const response = await fetch('api_user.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: formData.toString()
+                    });
+                    const data = await response.json();
+                    displayToast(data.message);
+                    if (data.status === 'success') {
+                        const notifList = document.querySelector('.notification-list');
+                        if (notifList) {
+                            notifList.innerHTML = '<div style="text-align:center; color:rgba(255,255,255,0.3); padding: 20px;">暂无通知</div>';
+                        }
+                        const badge = document.getElementById('notif-badge');
+                        if (badge) {
+                            badge.style.display = 'none';
+                            badge.innerText = '0';
+                        }
+                    }
+                } catch (e) {
+                    displayToast('操作失败，网络错误');
+                }
+            });
+        }
 
         function openNotifications() {
             document.getElementById('notif-modal').style.display = 'flex';
@@ -617,12 +735,50 @@ $user_email_pref = $invite_db->getUserEmailPreference($user_id);
                 });
                 const data = await response.json();
                 if (data.status !== 'success') {
-                    alert('保存设置失败');
+                    displayToast('保存设置失败');
+                } else {
+                    displayToast('设置已保存');
                 }
             } catch (e) {
-                alert('网络错误');
+                displayToast('网络错误');
             }
         }
+
+        // Background Polling for live status updates
+        async function pollUserData() {
+            try {
+                const formData = new URLSearchParams();
+                formData.append('action', 'poll_data');
+                
+                const response = await fetch('api_user.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: formData.toString()
+                });
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    // Update requests
+                    document.getElementById('my-requests').innerHTML = data.requests_html;
+                    
+                    // Update notifications list
+                    const notifList = document.querySelector('.notification-list');
+                    if (notifList) notifList.innerHTML = data.notifications_html;
+                    
+                    // Update unread badge
+                    const badge = document.getElementById('notif-badge');
+                    if (badge) {
+                        badge.innerText = data.unread_count;
+                        badge.style.display = data.unread_count > 0 ? 'block' : 'none';
+                    }
+                }
+            } catch (e) {
+                console.error("Polling error", e);
+            }
+        }
+        
+        // Start polling every 8 seconds
+        setInterval(pollUserData, 8000);
 
         // Close modals on outside click
         window.onclick = function(event) {

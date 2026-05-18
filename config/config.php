@@ -18,7 +18,7 @@ return [
     // ------------------------------------------
     'emby' => [
         // 您的 Emby 服务器地址，例如 'http://127.0.0.1:8096'
-        'base_url' => env('EMBY_BASE_URL', 'http://YOUR_EMBY_IP:PORT'), 
+        'base_url' => env('EMBY_BASE_URL', 'http://127.0.0.1:8096'), 
         // Emby 的 API Token
         'token' => env('EMBY_API_TOKEN', 'YOUR_EMBY_API_TOKEN'),
         // 用于复制权限的模板用户 ID
@@ -84,10 +84,18 @@ return [
     ],
 
     // ------------------------------------------
-    // 自动封禁配置 (界面预留，功能暂不执行)
+    // 非活跃用户自动封禁配置
     // ------------------------------------------
     'auto_ban' => [
         'enable' => filter_var(env('ENABLE_AUTO_BAN', false), FILTER_VALIDATE_BOOLEAN),
         'days' => (int)env('AUTO_BAN_DAYS', 30),
+    ],
+
+    // ------------------------------------------
+    // 自动清理过期求片配置
+    // ------------------------------------------
+    'auto_delete_requests' => [
+        'enable' => filter_var(env('ENABLE_AUTO_DELETE_REQUESTS', false), FILTER_VALIDATE_BOOLEAN),
+        'days' => (int)env('AUTO_DELETE_REQUESTS_DAYS', 30),
     ],
 ];

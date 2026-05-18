@@ -41,81 +41,78 @@
 
 ---
 
-## 🔧 直接部署
+## 🔧 直接部署 (直接部署遵循“最小权限原则”)
 
-1. 环境准备：确保服务器安装了 PHP 7.4+ 以及 SQLite3 扩展。
-2. 下载源码：下载本项目至服务器。
-3. 配置修改：
-   
-    ●根据注释修改 `./config/config.php`，填入 Emby API 信息及管理员账号。
+1. **环境准备**：确保服务器安装了 PHP 7.4+ 以及 SQLite3 扩展。
+2. **下载源码**：下载本项目至服务器。
+3. **配置与权限设置 (🔒 最小权限原则)**：
+   为防止任意代码执行 (RCE) 或越权写入等安全隐患，强烈建议采用**最小权限原则**配置目录权限：
+   - 将 Nginx 或 Apache 的网站根目录 (DocumentRoot) 指向 `./public` 目录，**禁止**将父级目录暴露给公网。
+   - **写权限 (仅 config)**：PHP 进程（如 `www-data`）**仅**需要对 `./config` 目录有写入 (`r+w`) 权限（用于写入 SQLite 数据库和保存可视化配置）。
+   - **只读权限 (主目录)**：本项目其余所有目录及文件（包括 `public` 目录下的 php 文件）对 PHP 进程应设置为**只读 (`r`)**。
+     ```bash
+     # 示例权限配置 (Linux)
+     chown -R root:root /var/www/emby_signup
+     chmod -R 755 /var/www/emby_signup
+     # 仅给予 config 目录给 Web 用户(例如 www-data)的写入权限
+     chown -R www-data:www-data /var/www/emby_signup/config
+     ```
+4. **初始化**：
+   你可以直接访问 `/admin.php`（默认用户名：`admin`，密码：`password`），然后在后台管理面板的 **「系统设置」** 页面中直接可视化地完成 Emby API、SMTP 邮件等各项设置，无需手动编辑任何代码。
 
-    ●[新增] 在配置文件中填入您的 SMTP 邮箱服务信息（支持 QQ、Gmail、126 等）。
+---
 
-    ●[新增] 可按需编辑 `./config/email_template.txt` 自定义发送给用户的邮件文案。
-4. 权限设置：PHP 需要对 `./config` 目录有写入权限；将 Nginx 或 Apache 的网站根目录指向 `./public` 目录。
 ## 🐳 Docker 部署 
 
-### 快速启动
+### 方式一：零配置启动 (推荐 ⭐️)
 
-1. **下载镜像**
-   ```bash
-   docker pull onelxzy/emby_signup:latest
-   ```
+本项目已支持**零配置直接启动**。你无需在命令行里逐一输入繁琐的环境变量，启动后可以直接在网页的系统设置面板里可视化配置，极为方便。
 
-2. **创建配置文件目录**
-   在宿主机创建一个目录用于保存配置（例如 `config`），以便重启容器后配置不丢失。
+1. **创建本地映射目录**（用于持久化保存数据库和配置）
    ```bash
    mkdir -p config
    ```
-
-3. **启动容器**
-   运行以下命令（请根据实际情况修改环境变量）：
-> **💡 提示**：你也可以**不设置**任何 `-e` 环境变量直接启动。容器启动后会自动在挂载的 `./config` 目录下生成 `config.php`，你可以直接编辑该文件填入配置，然后重启容器即可。
+2. **直接运行容器**
    ```bash
    docker run -d \
      --name emby-signup \
      --restart always \
      -p 8888:80 \
      -v $(pwd)/config:/var/www/html/config \
-     -e EMBY_BASE_URL="http://192.168.1.10:8096" \
-     -e EMBY_API_TOKEN="你的EmbyAPI密钥" \
-     -e EMBY_TEMPLATE_USER_ID="复制权限的模板用户ID" \
-     -e SITE_LOGIN_URL="http://192.168.1.10:8096" \
-     -e ADMIN_USERNAME="admin" \
-     -e ADMIN_PASSWORD="password" \
-     -e SMTP_HOST="smtp.qq.com" \
-     -e SMTP_PORT="465" \
-     -e SMTP_SECURE="ssl" \
-     -e SMTP_USERNAME="your_email@qq.com" \
-     -e SMTP_PASSWORD="your_smtp_password" \
-     -e SMTP_FROM_NAME="Emby Admin" \
+     onelxzy/emby_signup:latest
+   ```
+3. **访问并配置**
+   直接访问 `http://IP:8888/admin.php`，使用默认账号（用户名 `admin`，密码 `password`）登录，在 **「系统设置」** 页面直接进行可视化配置保存。
+
+---
+
+### 方式二：使用 `.env` 配置文件启动
+
+如果你更倾向于通过传统的环境变量进行部署，也可以使用 `.env` 配置文件来优雅地批量传参，避免在 `docker run` 命令中写出超长的一堆 `-e` 配置。
+
+1. **下载或创建 `.env` 配置文件**
+   复制项目根目录下的 `.env.example` 并重命名为 `.env`，填入你的配置信息：
+   ```bash
+   cp .env.example .env
+   # 编辑 .env 填入你的 Emby API / SMTP 配置
+   nano .env
+   ```
+2. **通过 `--env-file` 运行容器**
+   ```bash
+   docker run -d \
+     --name emby-signup \
+     --restart always \
+     -p 8888:80 \
+     -v $(pwd)/config:/var/www/html/config \
+     --env-file .env \
      onelxzy/emby_signup:latest
    ```
 
-### 环境变量说明
+---
 
-| 变量名 | 必填 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `EMBY_BASE_URL` | ✅ | - | Emby 服务器地址 |
-| `EMBY_API_TOKEN` | ✅ | - | 在 Emby 控制台 -> 高级 -> API 密钥中生成 |
-| `EMBY_TEMPLATE_USER_ID` | ✅ | - | 用于复制权限/配置的模板用户 ID |
-| `SITE_LOGIN_URL` | ✅ | - | 注册成功后跳转的登录地址 |
-| `ADMIN_USERNAME` | ❌ | `admin` | 后台管理面板用户名 (备用) |
-| `ADMIN_PASSWORD` | ❌ | `password` | 后台管理面板密码 (备用) |
-| `SMTP_HOST` | ✅ | - | SMTP 服务器 (如 `smtp.qq.com`) |
-| `SMTP_PORT` | ❌ | `465` | SMTP 端口 |
-| `SMTP_SECURE` | ❌ | `ssl` | 加密方式 (`ssl` 或 `tls`) |
-| `SMTP_USERNAME` | ✅ | - | 发信邮箱账号 |
-| `SMTP_PASSWORD` | ✅ | - | 邮箱密码或应用专用授权码 |
-| `SMTP_FROM_NAME` | ❌ | `Emby Admin` | 邮件发件人显示名称 |
-| `EMAIL_SUBJECT` | ❌ | `Emby 媒体服务器邀请函` | 邀请邮件的主题 |
-| `TMDB_API_KEY` | ❌ | - | [新增] 用于求片海报墙的 TMDB API 密钥 |
-| `TMDB_PROXY` | ❌ | - | [新增] 访问 TMDB 的 HTTP 代理 (如 `tcp://127.0.0.1:7890`) |
-| `ENABLE_REQUEST_EMAIL_NOTIFY` | ❌ | `false` | [新增] 是否开启求片处理的邮件通知 |
-| `ENABLE_AUTO_BAN` | ❌ | `false` | [新增] 是否开启超时未活动用户自动封禁 |
-| `AUTO_BAN_DAYS` | ❌ | `30` | [新增] 自动封禁的无活动天数阈值 |
-   
-📌 **模板账号权限必须事先设置好！** 新用户会完整继承该用户的 Emby 权限设置，请谨慎选择。
+### 💡 部署贴士：
+* 📌 **模板账号权限**：请务必在 Emby 控制台中事先规划好用于克隆权限的**模板用户**！新注册的用户会完美克隆该模板账号的所有媒体库读取与播放权限。
+* 🔒 **默认安全**：默认的 `.htaccess` 已经设置了 `Require all denied`，即便你将整站暴露，外部也无法直接通过 URL 访问你的 `config` 文件夹或下载 SQLite 数据库文件。
 
 ---
 

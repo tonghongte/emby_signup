@@ -1,6 +1,6 @@
 <?php
 
-// 重定向到注册页面
+// 重定向到登录页面
 
-header('Location: register.php');
+header('Location: login.php');
 exit;
