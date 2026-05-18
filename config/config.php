@@ -7,9 +7,11 @@ if (__FILE__ === realpath($_SERVER['SCRIPT_FILENAME'])) {
     exit("Access Denied");
 }
 
-function env($key, $default = null) {
-    $value = getenv($key);
-    return $value === false ? $default : $value;
+if (!function_exists('env')) {
+    function env($key, $default = null) {
+        $value = getenv($key);
+        return $value === false ? $default : $value;
+    }
 }
 
 return [
@@ -18,7 +20,7 @@ return [
     // ------------------------------------------
     'emby' => [
         // 您的 Emby 服务器地址，例如 'http://127.0.0.1:8096'
-        'base_url' => env('EMBY_BASE_URL', 'http://YOUR_EMBY_IP:PORT'), 
+        'base_url' => env('EMBY_BASE_URL', 'http://127.0.0.1:8096'), 
         // Emby 的 API Token
         'token' => env('EMBY_API_TOKEN', 'YOUR_EMBY_API_TOKEN'),
         // 用于复制权限的模板用户 ID
@@ -61,5 +63,41 @@ return [
     'email_template' => [
         'subject' => env('EMAIL_SUBJECT', 'Emby 媒体服务器邀请函'), //邮件主题
         'template_path' => __DIR__ . '/email_template.txt', 
+    ],
+
+    // ------------------------------------------
+    // TMDB 配置 (求片系统海报墙)
+    // ------------------------------------------
+    'tmdb' => [
+        // TMDB API Key (申请地址: https://www.themoviedb.org/settings/api)
+        'api_key' => env('TMDB_API_KEY', ''), 
+        // 搜索结果返回的语言
+        'language' => env('TMDB_LANGUAGE', 'zh-CN'),
+        // TMDB 代理配置
+        'proxy' => env('TMDB_PROXY', ''), // HTTP Proxy, e.g. tcp://127.0.0.1:7890
+    ],
+
+    // ------------------------------------------
+    // 通知配置 (求片处理结果与管理员新求片通知)
+    // ------------------------------------------
+    'notification' => [
+        'enable_admin_email_notify' => filter_var(env('ENABLE_ADMIN_EMAIL_NOTIFY', false), FILTER_VALIDATE_BOOLEAN),
+        'enable_user_email_notify' => filter_var(env('ENABLE_USER_EMAIL_NOTIFY', false), FILTER_VALIDATE_BOOLEAN),
+    ],
+
+    // ------------------------------------------
+    // 非活跃用户自动封禁配置
+    // ------------------------------------------
+    'auto_ban' => [
+        'enable' => filter_var(env('ENABLE_AUTO_BAN', false), FILTER_VALIDATE_BOOLEAN),
+        'days' => (int)env('AUTO_BAN_DAYS', 30),
+    ],
+
+    // ------------------------------------------
+    // 自动清理过期求片配置
+    // ------------------------------------------
+    'auto_delete_requests' => [
+        'enable' => filter_var(env('ENABLE_AUTO_DELETE_REQUESTS', false), FILTER_VALIDATE_BOOLEAN),
+        'days' => (int)env('AUTO_DELETE_REQUESTS_DAYS', 30),
     ],
 ];
