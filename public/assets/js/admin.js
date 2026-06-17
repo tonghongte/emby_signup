@@ -75,7 +75,7 @@ function toggleSidebar() {
 
 function switchTab(index) {
     document.querySelectorAll('.tab-btn').forEach((btn, i) => {
-        if(i < 4) btn.classList.toggle('active', i === index); // 4 tabs
+        if(i < 5) btn.classList.toggle('active', i === index); // 5 tabs
     });
     document.querySelectorAll('.tab-content').forEach((content, i) => {
         content.classList.toggle('active', i === index);
@@ -91,7 +91,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const hash = location.hash;
     if (hash && hash.startsWith('#tab-')) {
         const idx = parseInt(hash.replace('#tab-', ''));
-        if (!isNaN(idx) && idx >= 0 && idx < 4) {
+        if (!isNaN(idx) && idx >= 0 && idx < 5) {
             switchTab(idx);
         }
     }
@@ -180,11 +180,17 @@ async function pollAdminData() {
             const userTbody = document.querySelector('#tab-2 table tbody');
             if (userTbody) userTbody.innerHTML = data.users_html;
 
+            const inviteReqTbody = document.querySelector('#tab-3 table tbody');
+            if (inviteReqTbody) inviteReqTbody.innerHTML = data.invite_requests_html;
+
             const inviteTitle = document.querySelector('#tab-0 .section-title');
             if (inviteTitle) inviteTitle.innerText = `邀请码 (${data.invite_codes_count})`;
 
             const userTitle = document.querySelector('#tab-2 .section-title');
             if (userTitle) userTitle.innerText = `用户列表 (${data.users_count})`;
+
+            const inviteReqTitle = document.querySelector('#tab-3 .section-title');
+            if (inviteReqTitle) inviteReqTitle.innerText = `邀请申请 (${data.invite_requests_count})`;
         }
     } catch (e) {
         console.error("Polling error", e);

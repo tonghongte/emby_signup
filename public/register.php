@@ -151,6 +151,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             <div class="status-link">
                 <a href="./login.php">已有账号？去登录</a>
+                <span style="margin: 0 8px; opacity: 0.4;">|</span>
+                <a href="./request_invite.php">没有邀请码？申请一个</a>
             </div>
         </div>
 

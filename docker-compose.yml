@@ -1,0 +1,52 @@
+# ==========================================================
+# Emby Signup - Portainer Stack / docker-compose
+# 直接拉取 GHCR 镜像部署
+# ==========================================================
+# 说明：
+#   - 所有 environment 变量均为「可选」。留空也能正常启动，
+#     启动后可直接登录后台「系统设置」页面可视化配置。
+#   - environment 仅作为「首次启动默认值」。一旦在后台 UI 保存过设置，
+#     配置会以字面量写入持久化卷中的 config.php，此后这里的变量不再覆盖它。
+#   - 数据库与配置持久化在命名卷 emby_config，请勿删除以免丢失数据。
+
+services:
+  emby-signup:
+    image: ghcr.io/tonghongte/emby_signup:latest   # 改成你自己的 GHCR 命名空间
+    container_name: emby-signup
+    restart: always
+    ports:
+      - "8888:80"          # 宿主机端口:容器端口。容器内 Apache 固定监听 80
+    environment:
+      # ---- Emby 服务器 ----
+      EMBY_BASE_URL: "http://your-emby-ip:8096"
+      EMBY_API_TOKEN: ""
+      EMBY_TEMPLATE_USER_ID: ""
+
+      # ---- 站点 ----
+      SITE_LOGIN_URL: "http://your-emby-ip:8096"   # 注册成功后跳转的 Emby 登录页
+
+      # ---- 后台管理员 (务必修改默认密码) ----
+      ADMIN_USERNAME: "admin"
+      ADMIN_PASSWORD: "please_change_me"
+
+      # ---- SMTP 发信 ----
+      SMTP_HOST: ""
+      SMTP_PORT: "465"
+      SMTP_SECURE: "ssl"          # ssl / tls / none
+      SMTP_USERNAME: ""
+      SMTP_PASSWORD: ""
+      SMTP_FROM_NAME: "Emby Admin"
+
+      # ---- TMDB 求片海报墙 ----
+      TMDB_API_KEY: ""
+      TMDB_PROXY: ""              # 例如 tcp://127.0.0.1:7890
+      TMDB_LANGUAGE: "zh-CN"
+
+      # ---- 自动化开关 ----
+      ENABLE_AUTO_BAN: "false"
+      AUTO_BAN_DAYS: "30"
+    volumes:
+      - emby_config:/var/www/html/config
+
+volumes:
+  emby_config:

@@ -66,6 +66,16 @@ class InviteDB
             email_notify_enabled INTEGER DEFAULT 1
         )");
 
+        // 用户主动申请邀请码的请求
+        $this->db->exec("CREATE TABLE IF NOT EXISTS invite_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            invite_code TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )");
+
         // 启用 WAL 模式以提高并发写入性能
         $this->db->exec('PRAGMA journal_mode = wal;');
     }
@@ -369,6 +379,82 @@ class InviteDB
         $stmt = $this->db->prepare("INSERT INTO user_settings (emby_user_id, email_notify_enabled) VALUES (:user_id, :enabled) ON CONFLICT(emby_user_id) DO UPDATE SET email_notify_enabled = :enabled");
         $stmt->bindValue(':user_id', $emby_user_id, SQLITE3_TEXT);
         $stmt->bindValue(':enabled', $enabled ? 1 : 0, SQLITE3_INTEGER);
+        $stmt->execute();
+        return $this->db->changes() > 0;
+    }
+
+    // ==========================================
+    // Invite Requests Methods (用户申请邀请码)
+    // ==========================================
+
+    /**
+     * 检查指定邮箱是否已存在待处理的邀请码申请
+     */
+    public function hasPendingInviteRequest(string $email): bool
+    {
+        $stmt = $this->db->prepare("SELECT COUNT(*) AS count FROM invite_requests WHERE email = :email AND status = 'pending'");
+        $stmt->bindValue(':email', $email, SQLITE3_TEXT);
+        $result = $stmt->execute();
+        if ($result && $row = $result->fetchArray(SQLITE3_ASSOC)) {
+            return (int)$row['count'] > 0;
+        }
+        return false;
+    }
+
+    /**
+     * 新增一条邀请码申请
+     */
+    public function addInviteRequest(string $email): bool
+    {
+        $stmt = $this->db->prepare('INSERT INTO invite_requests (email) VALUES (:email)');
+        $stmt->bindValue(':email', $email, SQLITE3_TEXT);
+        $result = $stmt->execute();
+        return $result !== false;
+    }
+
+    /**
+     * 查询所有邀请码申请 (按时间倒序)
+     */
+    public function getAllInviteRequests(): array
+    {
+        $result = $this->db->query("SELECT * FROM invite_requests ORDER BY created_at DESC");
+        $requests = [];
+        if ($result) {
+            while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
+                $requests[] = $row;
+            }
+        }
+        return $requests;
+    }
+
+    public function getInviteRequestById($id)
+    {
+        $stmt = $this->db->prepare("SELECT * FROM invite_requests WHERE id = :id");
+        $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+        $result = $stmt->execute();
+        if ($result) {
+            return $result->fetchArray(SQLITE3_ASSOC);
+        }
+        return null;
+    }
+
+    /**
+     * 更新申请状态 (可选记录已发送的邀请码)
+     */
+    public function updateInviteRequestStatus($id, string $status, ?string $code = null): bool
+    {
+        $stmt = $this->db->prepare("UPDATE invite_requests SET status = :status, invite_code = :code, updated_at = CURRENT_TIMESTAMP WHERE id = :id");
+        $stmt->bindValue(':status', $status, SQLITE3_TEXT);
+        $stmt->bindValue(':code', $code, $code === null ? SQLITE3_NULL : SQLITE3_TEXT);
+        $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+        $stmt->execute();
+        return $this->db->changes() > 0;
+    }
+
+    public function deleteInviteRequest($id): bool
+    {
+        $stmt = $this->db->prepare("DELETE FROM invite_requests WHERE id = :id");
+        $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
         $stmt->execute();
         return $this->db->changes() > 0;
     }

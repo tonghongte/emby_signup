@@ -33,6 +33,35 @@ if (!$is_authenticated) {
     exit;
 }
 
+/**
+ * 渲染单行「邀请申请」表格 HTML
+ */
+function renderInviteRequestRow(array $req): string
+{
+    $status_map = ['pending' => '待处理', 'sent' => '已发送', 'ignored' => '已忽略'];
+    $status_text = $status_map[$req['status']] ?? $req['status'];
+    $badge_class = $req['status'] === 'sent' ? 'approved' : ($req['status'] === 'ignored' ? 'rejected' : '');
+
+    ob_start();
+    ?>
+    <tr>
+        <td><?php echo htmlspecialchars($req['email']); ?></td>
+        <td style="font-size:12px; color:var(--text-sub);"><?php echo htmlspecialchars($req['created_at']); ?></td>
+        <td><span class="badge <?php echo $badge_class; ?>"><?php echo $status_text; ?></span></td>
+        <td>
+            <div style="display: flex; gap: 8px;">
+                <?php if ($req['status'] === 'pending'): ?>
+                <button class="btn btn-primary" onclick="showConfirm('发送邀请码', '确定生成新邀请码并发送至 <?php echo htmlspecialchars(addslashes($req['email'])); ?> 吗？', () => ajaxAction('send_invite_to_request', {id: <?php echo $req['id']; ?>}))">发送邀请码</button>
+                <button class="btn btn-danger" onclick="showConfirm('忽略申请', '确定忽略该邀请码申请吗？', () => ajaxAction('ignore_invite_request', {id: <?php echo $req['id']; ?>}))">忽略</button>
+                <?php endif; ?>
+                <button class="btn btn-danger-solid" onclick="showConfirm('删除记录', '确定删除该申请记录吗？', () => ajaxAction('delete_invite_request', {id: <?php echo $req['id']; ?>}))">删除</button>
+            </div>
+        </td>
+    </tr>
+    <?php
+    return ob_get_clean();
+}
+
 // ----------------------------------------------------
 // AJAX 请求处理逻辑
 // ----------------------------------------------------
@@ -48,6 +77,7 @@ if ($is_authenticated && isset($_POST['ajax'])) {
     if ($action === 'poll_data') {
         $all_invite_codes = $invite_db->getAllUnusedCodes();
         $all_requests = $invite_db->getAllRequests();
+        $all_invite_requests = $invite_db->getAllInviteRequests();
         $emby_users = EmbyApi::getEmbyUsers() ?: [];
 
         // 生成邀请码表格 HTML 行段
@@ -129,13 +159,25 @@ if ($is_authenticated && isset($_POST['ajax'])) {
         }
         $users_tbody = ob_get_clean();
 
+        // 生成邀请申请表格 HTML 行段
+        $invite_requests_tbody = '';
+        foreach ($all_invite_requests as $req) {
+            $invite_requests_tbody .= renderInviteRequestRow($req);
+        }
+        $pending_invite_requests = 0;
+        foreach ($all_invite_requests as $req) {
+            if ($req['status'] === 'pending') $pending_invite_requests++;
+        }
+
         echo json_encode([
             'status' => 'success',
             'invite_codes_count' => count($all_invite_codes),
             'requests_count' => count($all_requests),
+            'invite_requests_count' => $pending_invite_requests,
             'users_count' => count($emby_users),
             'invite_codes_html' => $invite_codes_tbody,
             'requests_html' => $requests_tbody,
+            'invite_requests_html' => $invite_requests_tbody,
             'users_html' => $users_tbody
         ]);
         exit;
@@ -197,6 +239,48 @@ if ($is_authenticated && isset($_POST['ajax'])) {
     } elseif ($action === 'clear_all_requests') {
         $invite_db->clearAllRequests();
         $response = ['status' => 'success', 'message' => "所有求片记录已清空"];
+    } elseif ($action === 'send_invite_to_request') {
+        $req_id = (int)$_POST['id'];
+        $req = $invite_db->getInviteRequestById($req_id);
+        if (!$req) {
+            $response['message'] = '申请记录不存在';
+        } elseif (!filter_var($req['email'], FILTER_VALIDATE_EMAIL)) {
+            $response['message'] = '该申请的邮箱格式不正确';
+        } elseif (empty($config['smtp']['host'])) {
+            $response['message'] = '未配置 SMTP 信息，无法发送邀请码';
+        } else {
+            // 生成新邀请码并写入数据库
+            $new_code = InviteDB::generateRandomCode();
+            if (!$invite_db->insertCode($new_code)) {
+                $response['message'] = '邀请码生成失败，请重试';
+            } else {
+                $invite_link = rtrim($base_url, '/') . '/' . ltrim($register_page_path, '/') . '?invite_code=' . urlencode($new_code);
+
+                // 套用邮件模版
+                $template_path = $config['email_template']['template_path'] ?? __DIR__ . '/../config/email_template.txt';
+                $body = file_exists($template_path) ? file_get_contents($template_path) : "您的邀请码：{code}\n注册链接：{link}";
+                $body = str_replace(['{code}', '{link}'], [$new_code, $invite_link], $body);
+                $subject = $config['email_template']['subject'] ?? 'Emby 媒体服务器邀请函';
+
+                $res = send_smtp_email($config['smtp'], $req['email'], $subject, $body);
+                if ($res['status']) {
+                    $invite_db->updateInviteRequestStatus($req_id, 'sent', $new_code);
+                    $response = ['status' => 'success', 'message' => '邀请码已发送至 ' . $req['email']];
+                } else {
+                    $response = ['status' => 'error', 'message' => '邮件发送失败: ' . $res['message']];
+                }
+            }
+        }
+    } elseif ($action === 'ignore_invite_request') {
+        $req_id = (int)$_POST['id'];
+        if ($invite_db->updateInviteRequestStatus($req_id, 'ignored')) {
+            $response = ['status' => 'success', 'message' => '申请已忽略'];
+        }
+    } elseif ($action === 'delete_invite_request') {
+        $req_id = (int)$_POST['id'];
+        if ($invite_db->deleteInviteRequest($req_id)) {
+            $response = ['status' => 'success', 'message' => '申请记录已删除'];
+        }
     } elseif ($action === 'ban_user') {
         $uid = $_POST['uid'];
         if (EmbyApi::banEmbyUser($uid)) $response = ['status' => 'success', 'message' => '用户已封禁'];
@@ -275,6 +359,11 @@ header("Content-Type: text/html; charset=utf-8");
 // Fetch Data for Tabs
 $all_invite_codes = $invite_db->getAllUnusedCodes();
 $all_requests = $invite_db->getAllRequests();
+$all_invite_requests = $invite_db->getAllInviteRequests();
+$pending_invite_requests = 0;
+foreach ($all_invite_requests as $ir) {
+    if ($ir['status'] === 'pending') $pending_invite_requests++;
+}
 $emby_users = EmbyApi::getEmbyUsers() ?: [];
 
 // 读取邀请邮件正文模版内容
@@ -385,6 +474,10 @@ $js_template_body = json_encode($template_content);
                         <span class="tab-text">用户列表</span>
                     </button>
                     <button class="tab-btn" onclick="switchTab(3)">
+                        <div class="tab-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg></div>
+                        <span class="tab-text">邀请申请</span>
+                    </button>
+                    <button class="tab-btn" onclick="switchTab(4)">
                         <div class="tab-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></div>
                         <span class="tab-text">系统设置</span>
                     </button>
@@ -502,8 +595,23 @@ $js_template_body = json_encode($template_content);
                         </div>
                     </div>
 
-                    <!-- Tab 4: Settings -->
+                    <!-- Tab 4: Invite Requests -->
                     <div class="tab-content" id="tab-3">
+                        <div class="header-flex">
+                            <div class="section-title">邀请申请 (<?php echo $pending_invite_requests; ?>)</div>
+                        </div>
+                        <div class="table-wrapper">
+                            <table>
+                                <thead><tr><th>邮箱</th><th>申请时间</th><th>状态</th><th>操作</th></tr></thead>
+                                <tbody>
+                                    <?php foreach ($all_invite_requests as $req): echo renderInviteRequestRow($req); endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Tab 5: Settings -->
+                    <div class="tab-content" id="tab-4">
                         <div class="header-flex">
                             <div class="section-title">系统设置</div>
                             <button type="button" class="btn btn-primary" onclick="saveSettings()" style="padding: 8px 16px; font-size: 13px;">
