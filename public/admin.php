@@ -681,8 +681,8 @@ $js_template_body = json_encode($template_content);
                                 <div class="switch-grid">
                                     <div class="switch-row">
                                         <div>
-                                            <label for="enable_admin_email">接收新求片通知</label>
-                                            <span class="switch-desc">用户提交新求片时，发送邮件通知管理员 (需正确配置SMTP)</span>
+                                            <label for="enable_admin_email">接收新求片/邀请申请通知</label>
+                                            <span class="switch-desc">用户提交新求片或申请邀请码时，发送邮件通知管理员 (需正确配置SMTP)</span>
                                         </div>
                                         <label class="toggle-switch">
                                             <input type="checkbox" name="enable_admin_email" id="enable_admin_email" value="1" <?php echo ($config['notification']['enable_admin_email_notify'] ?? false) ? 'checked' : ''; ?>>

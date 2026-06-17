@@ -35,6 +35,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else if ($invite_db->addInviteRequest($email)) {
         $message = '申请已提交！请等待管理员审核后将邀请码发送至您的邮箱。';
         $is_success = true;
+
+        // 通知管理员有新的邀请码申请
+        if (($config['notification']['enable_admin_email_notify'] ?? false) && !empty($config['smtp']['host'])) {
+            $admin_email = $config['smtp']['username'] ?? '';
+            if ($admin_email) {
+                $subject = "新邀请码申请提醒";
+                $body = "收到一条新的邀请码申请：\r\n\r\n申请邮箱: {$email}\r\n申请时间: " . date('Y-m-d H:i:s') . "\r\n\r\n请前往管理后台「邀请申请」处理。";
+                send_smtp_email($config['smtp'], $admin_email, $subject, $body);
+            }
+        }
     } else {
         $message = '提交失败，请稍后重试！';
     }
