@@ -4,6 +4,9 @@ name: Build and Push to GHCR
 # 触发条件：发布 Release，或在 Actions 页面手动触发 (workflow_dispatch)
 
 on:
+  push:
+    branches:
+      - main
   release:
     types: [published]
   workflow_dispatch:
@@ -39,7 +42,8 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=semver,pattern={{version}}
-            type=raw,value=latest
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push
         uses: docker/build-push-action@v5
