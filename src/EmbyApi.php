@@ -79,10 +79,11 @@ class EmbyApi
     /**
      * 复制模板权限并创建新的 Emby 用户
      */
-    public static function createEmbyUser($username, $password, $config) {
+    public static function createEmbyUser($username, $password, $config, $template_override = null) {
         $emby_url = rtrim($config['emby']['base_url'], '/');
         $emby_token = $config['emby']['token'];
-        $template_id = $config['emby']['template_user_id'];
+        // 优先使用传入的模板用户 ID，否则回退到全局配置
+        $template_id = !empty($template_override) ? $template_override : $config['emby']['template_user_id'];
 
         $url1 = "{$emby_url}/emby/Users/New?X-Emby-Token={$emby_token}";
         $data1 = array(

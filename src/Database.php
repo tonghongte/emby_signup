@@ -36,6 +36,16 @@ class InviteDB
         $this->db->exec("CREATE TABLE IF NOT EXISTS invite_codes (
             code TEXT PRIMARY KEY NOT NULL,
             used INTEGER DEFAULT 0 NOT NULL,
+            template_id INTEGER,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )");
+
+        // 模板账号 (用于克隆权限)，支持多个并可启用/停用
+        $this->db->exec("CREATE TABLE IF NOT EXISTS templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            emby_user_id TEXT NOT NULL,
+            enabled INTEGER DEFAULT 1 NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )");
         
@@ -72,12 +82,34 @@ class InviteDB
             email TEXT NOT NULL,
             status TEXT DEFAULT 'pending',
             invite_code TEXT,
+            template_id INTEGER,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )");
 
+        // 旧库平滑迁移：补齐 template_id 列
+        if (!$this->columnExists('invite_codes', 'template_id')) {
+            $this->db->exec("ALTER TABLE invite_codes ADD COLUMN template_id INTEGER");
+        }
+        if (!$this->columnExists('invite_requests', 'template_id')) {
+            $this->db->exec("ALTER TABLE invite_requests ADD COLUMN template_id INTEGER");
+        }
+
         // 启用 WAL 模式以提高并发写入性能
         $this->db->exec('PRAGMA journal_mode = wal;');
+    }
+
+    /**
+     * 检查指定表是否存在某列 (用于平滑迁移)
+     */
+    private function columnExists(string $table, string $column): bool
+    {
+        $result = $this->db->query("PRAGMA table_info(" . $table . ")");
+        if (!$result) return false;
+        while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
+            if ($row['name'] === $column) return true;
+        }
+        return false;
     }
     
     /**
@@ -98,16 +130,31 @@ class InviteDB
      * @param string $code
      * @return bool 成功返回 true，如果邀请码已存在或失败返回 false
      */
-    public function insertCode(string $code): bool
+    public function insertCode(string $code, ?int $template_id = null): bool
     {
-        $stmt = $this->db->prepare('INSERT INTO invite_codes (code) VALUES (:code)');
+        $stmt = $this->db->prepare('INSERT INTO invite_codes (code, template_id) VALUES (:code, :template_id)');
         $stmt->bindValue(':code', $code, SQLITE3_TEXT);
-        
+        $stmt->bindValue(':template_id', $template_id, $template_id === null ? SQLITE3_NULL : SQLITE3_INTEGER);
+
         $this->db->exec('BEGIN TRANSACTION');
         $result = $stmt->execute();
         $this->db->exec('COMMIT');
 
         return $result !== false && $this->db->changes() > 0;
+    }
+
+    /**
+     * 获取邀请码绑定的模板 ID (不存在或未绑定返回 null)
+     */
+    public function getCodeTemplateId(string $code): ?int
+    {
+        $stmt = $this->db->prepare('SELECT template_id FROM invite_codes WHERE code = :code');
+        $stmt->bindValue(':code', $code, SQLITE3_TEXT);
+        $result = $stmt->execute();
+        if ($result && $row = $result->fetchArray(SQLITE3_ASSOC)) {
+            return $row['template_id'] !== null ? (int)$row['template_id'] : null;
+        }
+        return null;
     }
 
     /**
@@ -126,6 +173,25 @@ class InviteDB
             }
         }
         return $codes;
+    }
+
+    /**
+     * 查询所有未使用的邀请码 (含绑定模板信息)
+     */
+    public function getAllUnusedCodesDetailed(): array
+    {
+        $result = $this->db->query("SELECT ic.code, ic.template_id, t.name AS template_name, t.enabled AS template_enabled
+            FROM invite_codes ic
+            LEFT JOIN templates t ON ic.template_id = t.id
+            WHERE ic.used = 0
+            ORDER BY ic.created_at DESC");
+        $rows = [];
+        if ($result) {
+            while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
+                $rows[] = $row;
+            }
+        }
+        return $rows;
     }
 
     /**
@@ -404,10 +470,11 @@ class InviteDB
     /**
      * 新增一条邀请码申请
      */
-    public function addInviteRequest(string $email): bool
+    public function addInviteRequest(string $email, ?int $template_id = null): bool
     {
-        $stmt = $this->db->prepare('INSERT INTO invite_requests (email) VALUES (:email)');
+        $stmt = $this->db->prepare('INSERT INTO invite_requests (email, template_id) VALUES (:email, :template_id)');
         $stmt->bindValue(':email', $email, SQLITE3_TEXT);
+        $stmt->bindValue(':template_id', $template_id, $template_id === null ? SQLITE3_NULL : SQLITE3_INTEGER);
         $result = $stmt->execute();
         return $result !== false;
     }
@@ -454,6 +521,81 @@ class InviteDB
     public function deleteInviteRequest($id): bool
     {
         $stmt = $this->db->prepare("DELETE FROM invite_requests WHERE id = :id");
+        $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+        $stmt->execute();
+        return $this->db->changes() > 0;
+    }
+
+    // ==========================================
+    // Template Accounts Methods (模板账号)
+    // ==========================================
+
+    public function addTemplate(string $name, string $emby_user_id): bool
+    {
+        $stmt = $this->db->prepare('INSERT INTO templates (name, emby_user_id) VALUES (:name, :uid)');
+        $stmt->bindValue(':name', $name, SQLITE3_TEXT);
+        $stmt->bindValue(':uid', $emby_user_id, SQLITE3_TEXT);
+        $result = $stmt->execute();
+        return $result !== false;
+    }
+
+    public function getAllTemplates(): array
+    {
+        $result = $this->db->query("SELECT * FROM templates ORDER BY created_at DESC");
+        $templates = [];
+        if ($result) {
+            while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
+                $templates[] = $row;
+            }
+        }
+        return $templates;
+    }
+
+    public function getEnabledTemplates(): array
+    {
+        $result = $this->db->query("SELECT * FROM templates WHERE enabled = 1 ORDER BY created_at DESC");
+        $templates = [];
+        if ($result) {
+            while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
+                $templates[] = $row;
+            }
+        }
+        return $templates;
+    }
+
+    public function getTemplateById($id)
+    {
+        $stmt = $this->db->prepare("SELECT * FROM templates WHERE id = :id");
+        $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+        $result = $stmt->execute();
+        if ($result) {
+            return $result->fetchArray(SQLITE3_ASSOC);
+        }
+        return null;
+    }
+
+    /**
+     * 解析模板 ID 对应的 Emby 用户 ID (模板不存在返回 null)
+     */
+    public function getTemplateEmbyUserId(?int $template_id): ?string
+    {
+        if ($template_id === null) return null;
+        $tpl = $this->getTemplateById($template_id);
+        return $tpl ? (string)$tpl['emby_user_id'] : null;
+    }
+
+    public function deleteTemplate($id): bool
+    {
+        $stmt = $this->db->prepare("DELETE FROM templates WHERE id = :id");
+        $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+        $stmt->execute();
+        return $this->db->changes() > 0;
+    }
+
+    public function setTemplateEnabled($id, bool $enabled): bool
+    {
+        $stmt = $this->db->prepare("UPDATE templates SET enabled = :enabled WHERE id = :id");
+        $stmt->bindValue(':enabled', $enabled ? 1 : 0, SQLITE3_INTEGER);
         $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
         $stmt->execute();
         return $this->db->changes() > 0;

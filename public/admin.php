@@ -34,6 +34,50 @@ if (!$is_authenticated) {
 }
 
 /**
+ * 解析模板 ID 显示名称 (无绑定显示"默认")
+ */
+function templateLabel($template_id): string
+{
+    global $invite_db;
+    if ($template_id === null || $template_id === '') return '默认';
+    $tpl = $invite_db->getTemplateById((int)$template_id);
+    return $tpl ? $tpl['name'] : '已删除模板';
+}
+
+/**
+ * 渲染单行「邀请码」表格 HTML
+ */
+function renderInviteCodeRow(array $row, string $base_url, string $register_page_path): string
+{
+    $code = $row['code'];
+    $invite_link = rtrim($base_url, '/') . '/' . ltrim($register_page_path, '/') . '?invite_code=' . urlencode($code);
+    $tpl_name = templateLabel($row['template_id'] ?? null);
+
+    ob_start();
+    ?>
+    <tr>
+        <td class="col-code"><span class="badge"><?php echo $code; ?></span></td>
+        <td><span class="badge"><?php echo htmlspecialchars($tpl_name); ?></span></td>
+        <td class="col-link">
+            <div class="link-wrapper">
+                <span class="link-text" title="<?php echo htmlspecialchars($invite_link); ?>"><?php echo htmlspecialchars($invite_link); ?></span>
+                <button type="button" class="copy-action-btn" onclick="copyInviteLink(this, '<?php echo htmlspecialchars(addslashes($invite_link)); ?>')">
+                    <svg class="copy-icon" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                </button>
+            </div>
+        </td>
+        <td>
+            <div style="display: flex; gap: 8px;">
+                <button class="btn btn-primary" onclick="openEmailModal('<?php echo $code; ?>', '<?php echo htmlspecialchars(addslashes($invite_link)); ?>')" style="padding: 6px 12px; font-size: 12px;">发送</button>
+                <button class="btn btn-danger" onclick="showConfirm('删除邀请码', '确定删除该邀请码吗？', () => ajaxAction('delete', {code: '<?php echo $code; ?>'}))" style="padding: 6px 12px; font-size: 12px;">删除</button>
+            </div>
+        </td>
+    </tr>
+    <?php
+    return ob_get_clean();
+}
+
+/**
  * 渲染单行「邀请申请」表格 HTML
  */
 function renderInviteRequestRow(array $req): string
@@ -41,11 +85,13 @@ function renderInviteRequestRow(array $req): string
     $status_map = ['pending' => '待处理', 'sent' => '已发送', 'ignored' => '已忽略'];
     $status_text = $status_map[$req['status']] ?? $req['status'];
     $badge_class = $req['status'] === 'sent' ? 'approved' : ($req['status'] === 'ignored' ? 'rejected' : '');
+    $tpl_name = templateLabel($req['template_id'] ?? null);
 
     ob_start();
     ?>
     <tr>
         <td><?php echo htmlspecialchars($req['email']); ?></td>
+        <td><span class="badge"><?php echo htmlspecialchars($tpl_name); ?></span></td>
         <td style="font-size:12px; color:var(--text-sub);"><?php echo htmlspecialchars($req['created_at']); ?></td>
         <td><span class="badge <?php echo $badge_class; ?>"><?php echo $status_text; ?></span></td>
         <td>
@@ -55,6 +101,33 @@ function renderInviteRequestRow(array $req): string
                 <button class="btn btn-danger" onclick="showConfirm('忽略申请', '确定忽略该邀请码申请吗？', () => ajaxAction('ignore_invite_request', {id: <?php echo $req['id']; ?>}))">忽略</button>
                 <?php endif; ?>
                 <button class="btn btn-danger-solid" onclick="showConfirm('删除记录', '确定删除该申请记录吗？', () => ajaxAction('delete_invite_request', {id: <?php echo $req['id']; ?>}))">删除</button>
+            </div>
+        </td>
+    </tr>
+    <?php
+    return ob_get_clean();
+}
+
+/**
+ * 渲染单行「模板账号」表格 HTML
+ */
+function renderTemplateRow(array $tpl): string
+{
+    $enabled = !empty($tpl['enabled']);
+    ob_start();
+    ?>
+    <tr>
+        <td><?php echo htmlspecialchars($tpl['name']); ?></td>
+        <td style="font-size:12px; color:var(--text-sub);"><?php echo htmlspecialchars($tpl['emby_user_id']); ?></td>
+        <td><?php echo $enabled ? '<span class="badge approved">启用</span>' : '<span class="badge rejected">停用</span>'; ?></td>
+        <td>
+            <div style="display: flex; gap: 8px;">
+                <?php if ($enabled): ?>
+                <button class="btn btn-danger" onclick="ajaxAction('toggle_template', {id: <?php echo $tpl['id']; ?>, enabled: '0'})">停用</button>
+                <?php else: ?>
+                <button class="btn btn-primary" onclick="ajaxAction('toggle_template', {id: <?php echo $tpl['id']; ?>, enabled: '1'})">启用</button>
+                <?php endif; ?>
+                <button class="btn btn-danger-solid" onclick="showConfirm('删除模板', '确定删除该模板吗？已绑定此模板的邀请码将回退至默认模板。', () => ajaxAction('delete_template', {id: <?php echo $tpl['id']; ?>}))">删除</button>
             </div>
         </td>
     </tr>
@@ -75,36 +148,17 @@ if ($is_authenticated && isset($_POST['ajax'])) {
     $action = $_POST['action'] ?? '';
     
     if ($action === 'poll_data') {
-        $all_invite_codes = $invite_db->getAllUnusedCodes();
+        $all_invite_codes = $invite_db->getAllUnusedCodesDetailed();
         $all_requests = $invite_db->getAllRequests();
         $all_invite_requests = $invite_db->getAllInviteRequests();
+        $all_templates = $invite_db->getAllTemplates();
         $emby_users = EmbyApi::getEmbyUsers() ?: [];
 
         // 生成邀请码表格 HTML 行段
-        ob_start();
-        foreach ($all_invite_codes as $code) {
-            $invite_link = rtrim($base_url, '/') . '/' . ltrim($register_page_path, '/') . '?invite_code=' . urlencode($code);
-            ?>
-            <tr>
-                <td class="col-code"><span class="badge"><?php echo $code; ?></span></td>
-                <td class="col-link">
-                    <div class="link-wrapper">
-                        <span class="link-text" title="<?php echo htmlspecialchars($invite_link); ?>"><?php echo htmlspecialchars($invite_link); ?></span>
-                        <button type="button" class="copy-action-btn" onclick="copyInviteLink(this, '<?php echo htmlspecialchars(addslashes($invite_link)); ?>')">
-                            <svg class="copy-icon" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                        </button>
-                    </div>
-                </td>
-                <td>
-                    <div style="display: flex; gap: 8px;">
-                        <button class="btn btn-primary" onclick="openEmailModal('<?php echo $code; ?>', '<?php echo htmlspecialchars(addslashes($invite_link)); ?>')" style="padding: 6px 12px; font-size: 12px;">发送</button>
-                        <button class="btn btn-danger" onclick="showConfirm('删除邀请码', '确定删除该邀请码吗？', () => ajaxAction('delete', {code: '<?php echo $code; ?>'}))" style="padding: 6px 12px; font-size: 12px;">删除</button>
-                    </div>
-                </td>
-            </tr>
-            <?php
+        $invite_codes_tbody = '';
+        foreach ($all_invite_codes as $code_row) {
+            $invite_codes_tbody .= renderInviteCodeRow($code_row, $base_url, $register_page_path);
         }
-        $invite_codes_tbody = ob_get_clean();
 
         // 生成求片请求表格 HTML 行段
         ob_start();
@@ -169,23 +223,49 @@ if ($is_authenticated && isset($_POST['ajax'])) {
             if ($req['status'] === 'pending') $pending_invite_requests++;
         }
 
+        // 生成模板账号表格 HTML 行段
+        $templates_tbody = '';
+        foreach ($all_templates as $tpl) {
+            $templates_tbody .= renderTemplateRow($tpl);
+        }
+
         echo json_encode([
             'status' => 'success',
             'invite_codes_count' => count($all_invite_codes),
             'requests_count' => count($all_requests),
             'invite_requests_count' => $pending_invite_requests,
+            'templates_count' => count($all_templates),
             'users_count' => count($emby_users),
             'invite_codes_html' => $invite_codes_tbody,
             'requests_html' => $requests_tbody,
             'invite_requests_html' => $invite_requests_tbody,
+            'templates_html' => $templates_tbody,
             'users_html' => $users_tbody
         ]);
         exit;
     }
     
     if ($action === 'generate') {
-        if ($invite_db->insertCode(InviteDB::generateRandomCode())) {
+        $gen_tpl = (isset($_POST['template_id']) && $_POST['template_id'] !== '') ? (int)$_POST['template_id'] : null;
+        if ($invite_db->insertCode(InviteDB::generateRandomCode(), $gen_tpl)) {
             $response = ['status' => 'success', 'message' => '邀请码已生成'];
+        }
+    } elseif ($action === 'add_template') {
+        $name = trim($_POST['name'] ?? '');
+        $uid = trim($_POST['emby_user_id'] ?? '');
+        if ($name === '' || $uid === '') {
+            $response['message'] = '模板名称和 Emby 用户 ID 不能为空';
+        } elseif ($invite_db->addTemplate($name, $uid)) {
+            $response = ['status' => 'success', 'message' => '模板已添加'];
+        }
+    } elseif ($action === 'delete_template') {
+        if ($invite_db->deleteTemplate((int)$_POST['id'])) {
+            $response = ['status' => 'success', 'message' => '模板已删除'];
+        }
+    } elseif ($action === 'toggle_template') {
+        $enabled = isset($_POST['enabled']) && $_POST['enabled'] === '1';
+        if ($invite_db->setTemplateEnabled((int)$_POST['id'], $enabled)) {
+            $response = ['status' => 'success', 'message' => $enabled ? '模板已启用' : '模板已停用'];
         }
     } elseif ($action === 'delete' && isset($_POST['code'])) {
         if ($invite_db->deleteCode($_POST['code'])) { 
@@ -249,9 +329,10 @@ if ($is_authenticated && isset($_POST['ajax'])) {
         } elseif (empty($config['smtp']['host'])) {
             $response['message'] = '未配置 SMTP 信息，无法发送邀请码';
         } else {
-            // 生成新邀请码并写入数据库
+            // 生成新邀请码并写入数据库 (继承申请时选择的模板)
+            $req_tpl = (isset($req['template_id']) && $req['template_id'] !== null) ? (int)$req['template_id'] : null;
             $new_code = InviteDB::generateRandomCode();
-            if (!$invite_db->insertCode($new_code)) {
+            if (!$invite_db->insertCode($new_code, $req_tpl)) {
                 $response['message'] = '邀请码生成失败，请重试';
             } else {
                 $invite_link = rtrim($base_url, '/') . '/' . ltrim($register_page_path, '/') . '?invite_code=' . urlencode($new_code);
@@ -357,9 +438,11 @@ if ($is_authenticated && isset($_POST['ajax'])) {
 header("Content-Type: text/html; charset=utf-8");
 
 // Fetch Data for Tabs
-$all_invite_codes = $invite_db->getAllUnusedCodes();
+$all_invite_codes = $invite_db->getAllUnusedCodesDetailed();
 $all_requests = $invite_db->getAllRequests();
 $all_invite_requests = $invite_db->getAllInviteRequests();
+$all_templates = $invite_db->getAllTemplates();
+$enabled_templates = $invite_db->getEnabledTemplates();
 $pending_invite_requests = 0;
 foreach ($all_invite_requests as $ir) {
     if ($ir['status'] === 'pending') $pending_invite_requests++;
@@ -478,6 +561,10 @@ $js_template_body = json_encode($template_content);
                         <span class="tab-text">邀请申请</span>
                     </button>
                     <button class="tab-btn" onclick="switchTab(4)">
+                        <div class="tab-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect></svg></div>
+                        <span class="tab-text">模板管理</span>
+                    </button>
+                    <button class="tab-btn" onclick="switchTab(5)">
                         <div class="tab-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></div>
                         <span class="tab-text">系统设置</span>
                     </button>
@@ -488,33 +575,23 @@ $js_template_body = json_encode($template_content);
                     <div class="tab-content active" id="tab-0">
                         <div class="header-flex">
                             <div class="section-title">邀请码 (<?php echo count($all_invite_codes); ?>)</div>
-                            <button class="btn btn-primary" onclick="ajaxAction('generate')">生成新邀请码</button>
+                            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                                <?php if (!empty($enabled_templates)): ?>
+                                <select id="gen-template-select" style="height:38px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 8px; color: white; padding: 0 12px; outline:none; cursor:pointer;">
+                                    <option value="">默认模板</option>
+                                    <?php foreach ($enabled_templates as $tpl): ?>
+                                    <option value="<?php echo (int)$tpl['id']; ?>"><?php echo htmlspecialchars($tpl['name']); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <?php endif; ?>
+                                <button class="btn btn-primary" onclick="generateCode()">生成新邀请码</button>
+                            </div>
                         </div>
                         <div class="table-wrapper">
                             <table>
-                                <thead><tr><th>邀请码</th><th>注册链接</th><th>操作</th></tr></thead>
+                                <thead><tr><th>邀请码</th><th>模板</th><th>注册链接</th><th>操作</th></tr></thead>
                                 <tbody>
-                                    <?php foreach ($all_invite_codes as $code): 
-                                        $invite_link = rtrim($base_url, '/') . '/' . ltrim($register_page_path, '/') . '?invite_code=' . urlencode($code); 
-                                    ?>
-                                    <tr>
-                                        <td class="col-code"><span class="badge"><?php echo $code; ?></span></td>
-                                        <td class="col-link">
-                                            <div class="link-wrapper">
-                                                <span class="link-text" title="<?php echo htmlspecialchars($invite_link); ?>"><?php echo htmlspecialchars($invite_link); ?></span>
-                                                <button type="button" class="copy-action-btn" onclick="copyInviteLink(this, '<?php echo htmlspecialchars(addslashes($invite_link)); ?>')">
-                                                    <svg class="copy-icon" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                                                </button>
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <div style="display: flex; gap: 8px;">
-                                                <button class="btn btn-primary" onclick="openEmailModal('<?php echo $code; ?>', '<?php echo htmlspecialchars(addslashes($invite_link)); ?>')" style="padding: 6px 12px; font-size: 12px;">发送</button>
-                                                <button class="btn btn-danger" onclick="showConfirm('删除邀请码', '确定删除该邀请码吗？', () => ajaxAction('delete', {code: '<?php echo $code; ?>'}))" style="padding: 6px 12px; font-size: 12px;">删除</button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                    <?php endforeach; ?>
+                                    <?php foreach ($all_invite_codes as $code_row): echo renderInviteCodeRow($code_row, $base_url, $register_page_path); endforeach; ?>
                                 </tbody>
                             </table>
                         </div>
@@ -602,7 +679,7 @@ $js_template_body = json_encode($template_content);
                         </div>
                         <div class="table-wrapper">
                             <table>
-                                <thead><tr><th>邮箱</th><th>申请时间</th><th>状态</th><th>操作</th></tr></thead>
+                                <thead><tr><th>邮箱</th><th>模板</th><th>申请时间</th><th>状态</th><th>操作</th></tr></thead>
                                 <tbody>
                                     <?php foreach ($all_invite_requests as $req): echo renderInviteRequestRow($req); endforeach; ?>
                                 </tbody>
@@ -610,8 +687,24 @@ $js_template_body = json_encode($template_content);
                         </div>
                     </div>
 
-                    <!-- Tab 5: Settings -->
+                    <!-- Tab 5: Templates -->
                     <div class="tab-content" id="tab-4">
+                        <div class="header-flex">
+                            <div class="section-title">模板管理 (<?php echo count($all_templates); ?>)</div>
+                            <button class="btn btn-primary" onclick="openTemplateModal()">添加模板</button>
+                        </div>
+                        <div class="table-wrapper">
+                            <table>
+                                <thead><tr><th>名称</th><th>Emby 用户 ID</th><th>状态</th><th>操作</th></tr></thead>
+                                <tbody>
+                                    <?php foreach ($all_templates as $tpl): echo renderTemplateRow($tpl); endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Tab 6: Settings -->
+                    <div class="tab-content" id="tab-5">
                         <div class="header-flex">
                             <div class="section-title">系统设置</div>
                             <button type="button" class="btn btn-primary" onclick="saveSettings()" style="padding: 8px 16px; font-size: 13px;">
@@ -757,6 +850,28 @@ $js_template_body = json_encode($template_content);
             <div style="display: flex; gap: 12px; width: 100%; margin-top: 24px;">
                 <button class="modal-btn" onclick="closeEmailModal()" style="background: rgba(255,255,255,0.1); color: white; width: 50%;">取消</button>
                 <button class="modal-btn" id="btn-send-mail" onclick="sendEmail()" style="background: var(--primary); color: white; width: 50%;">发送</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加模板模态框 -->
+    <div id="template-modal" class="modal-overlay" style="display: none; z-index: 2000;">
+        <div class="modal-content" style="max-width: 450px; text-align: left;">
+            <div class="modal-title" style="justify-content: flex-start; margin-bottom: 20px;">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--primary);"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect></svg>
+                <span>添加模板账号</span>
+            </div>
+            <div class="form-group">
+                <label for="template_name" style="font-weight: 600;">模板名称</label>
+                <input type="text" id="template_name" placeholder="例如：标准会员" autocomplete="off" style="width: 100%; padding: 12px 16px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 10px; color: white; margin-top: 8px;">
+            </div>
+            <div class="form-group" style="margin-top: 16px;">
+                <label for="template_uid" style="font-weight: 600;">Emby 模板用户 ID</label>
+                <input type="text" id="template_uid" placeholder="该模板用户在 Emby 中的 ID" autocomplete="off" style="width: 100%; padding: 12px 16px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 10px; color: white; margin-top: 8px;">
+            </div>
+            <div style="display: flex; gap: 12px; width: 100%; margin-top: 24px;">
+                <button class="modal-btn" onclick="closeTemplateModal()" style="background: rgba(255,255,255,0.1); color: white; width: 50%;">取消</button>
+                <button class="modal-btn" id="btn-add-template" onclick="submitTemplate()" style="background: var(--primary); color: white; width: 50%;">添加</button>
             </div>
         </div>
     </div>

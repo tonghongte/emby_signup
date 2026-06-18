@@ -69,13 +69,50 @@ async function sendEmail() {
     }
 }
 
+function generateCode() {
+    const sel = document.getElementById('gen-template-select');
+    const tplId = sel ? sel.value : '';
+    ajaxAction('generate', tplId ? { template_id: tplId } : {});
+}
+
+function openTemplateModal() {
+    document.getElementById('template_name').value = '';
+    document.getElementById('template_uid').value = '';
+    document.getElementById('template-modal').style.display = 'flex';
+    document.getElementById('template_name').focus();
+}
+
+function closeTemplateModal() {
+    document.getElementById('template-modal').style.display = 'none';
+}
+
+async function submitTemplate() {
+    const name = document.getElementById('template_name').value.trim();
+    const uid = document.getElementById('template_uid').value.trim();
+    if (!name || !uid) {
+        displayToast('请填写模板名称和 Emby 用户 ID', 'error');
+        return;
+    }
+    const btn = document.getElementById('btn-add-template');
+    btn.disabled = true;
+    const original = btn.innerText;
+    btn.innerText = '添加中...';
+    try {
+        await ajaxAction('add_template', { name: name, emby_user_id: uid });
+        closeTemplateModal();
+    } finally {
+        btn.disabled = false;
+        btn.innerText = original;
+    }
+}
+
 function toggleSidebar() {
     document.getElementById('sidebar').classList.toggle('collapsed');
 }
 
 function switchTab(index) {
     document.querySelectorAll('.tab-btn').forEach((btn, i) => {
-        if(i < 5) btn.classList.toggle('active', i === index); // 5 tabs
+        if(i < 6) btn.classList.toggle('active', i === index); // 6 tabs
     });
     document.querySelectorAll('.tab-content').forEach((content, i) => {
         content.classList.toggle('active', i === index);
@@ -91,7 +128,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const hash = location.hash;
     if (hash && hash.startsWith('#tab-')) {
         const idx = parseInt(hash.replace('#tab-', ''));
-        if (!isNaN(idx) && idx >= 0 && idx < 5) {
+        if (!isNaN(idx) && idx >= 0 && idx < 6) {
             switchTab(idx);
         }
     }
@@ -183,6 +220,9 @@ async function pollAdminData() {
             const inviteReqTbody = document.querySelector('#tab-3 table tbody');
             if (inviteReqTbody) inviteReqTbody.innerHTML = data.invite_requests_html;
 
+            const tplTbody = document.querySelector('#tab-4 table tbody');
+            if (tplTbody) tplTbody.innerHTML = data.templates_html;
+
             const inviteTitle = document.querySelector('#tab-0 .section-title');
             if (inviteTitle) inviteTitle.innerText = `邀请码 (${data.invite_codes_count})`;
 
@@ -191,6 +231,9 @@ async function pollAdminData() {
 
             const inviteReqTitle = document.querySelector('#tab-3 .section-title');
             if (inviteReqTitle) inviteReqTitle.innerText = `邀请申请 (${data.invite_requests_count})`;
+
+            const tplTitle = document.querySelector('#tab-4 .section-title');
+            if (tplTitle) tplTitle.innerText = `模板管理 (${data.templates_count})`;
         }
     } catch (e) {
         console.error("Polling error", e);
@@ -204,5 +247,9 @@ window.onclick = function(event) {
     const emailOverlay = document.getElementById('email-modal');
     if (event.target === emailOverlay) {
         closeEmailModal();
+    }
+    const tplOverlay = document.getElementById('template-modal');
+    if (event.target === tplOverlay) {
+        closeTemplateModal();
     }
 }

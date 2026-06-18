@@ -18,10 +18,15 @@ global $invite_db;
 $message = '';
 $is_success = false;
 
+// 可供用户选择的启用中模板账号
+$enabled_templates = $invite_db->getEnabledTemplates();
+$enabled_template_ids = array_map(fn($t) => (int)$t['id'], $enabled_templates);
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = trim($_POST['email'] ?? '');
     $captcha_input = trim($_POST['captcha'] ?? '');
     $captcha_session = $_SESSION['captcha_code'] ?? '';
+    $template_id = (isset($_POST['template_id']) && $_POST['template_id'] !== '') ? (int)$_POST['template_id'] : null;
 
     // 验证码一次性使用，无论成功失败都立即失效，强制刷新
     unset($_SESSION['captcha_code']);
@@ -30,9 +35,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $message = '验证码错误，请重新输入！';
     } else if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $message = '邮箱格式不正确！';
+    } else if (!empty($enabled_templates) && ($template_id === null || !in_array($template_id, $enabled_template_ids, true))) {
+        $message = '请选择有效的模板！';
     } else if ($invite_db->hasPendingInviteRequest($email)) {
         $message = '该邮箱已提交过申请，请耐心等待管理员处理！';
-    } else if ($invite_db->addInviteRequest($email)) {
+    } else if ($invite_db->addInviteRequest($email, $template_id)) {
         $message = '申请已提交！请等待管理员审核后将邀请码发送至您的邮箱。';
         $is_success = true;
 
@@ -102,6 +109,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <label for="email">邮箱地址</label>
                     <input type="email" id="email" name="email" required placeholder="请输入您的邮箱" autocomplete="off" value="<?php echo isset($_POST['email']) ? htmlspecialchars($_POST['email']) : ''; ?>">
                 </div>
+                <?php if (!empty($enabled_templates)): ?>
+                <div class="form-group">
+                    <label for="template_id">选择模板</label>
+                    <select id="template_id" name="template_id" required style="width:100%; height:48px; background: var(--input-bg, rgba(255,255,255,0.05)); border: 1px solid var(--border-color, rgba(255,255,255,0.1)); border-radius: 12px; color: white; padding: 0 16px; outline:none; cursor:pointer;">
+                        <option value="" disabled <?php echo !isset($_POST['template_id']) ? 'selected' : ''; ?>>请选择一个模板</option>
+                        <?php foreach ($enabled_templates as $tpl): ?>
+                        <option value="<?php echo (int)$tpl['id']; ?>" <?php echo (isset($_POST['template_id']) && (int)$_POST['template_id'] === (int)$tpl['id']) ? 'selected' : ''; ?>><?php echo htmlspecialchars($tpl['name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <?php endif; ?>
                 <div class="form-group">
                     <label for="captcha">验证码</label>
                     <div style="display:flex; gap:10px; align-items:stretch;">

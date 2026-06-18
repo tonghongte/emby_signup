@@ -41,7 +41,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = '邀请码已被其他请求使用，请重试或使用新的邀请码！';
         } else {
             require_once __DIR__ . '/../src/EmbyApi.php';
-            $reg_res = EmbyApi::createEmbyUser($username, $passwd, $config);
+            // 解析邀请码绑定的模板账号 (无绑定则回退全局默认模板)
+            $tpl_id = $invite_db->getCodeTemplateId($input_invite_code);
+            $tpl_uid = $invite_db->getTemplateEmbyUserId($tpl_id);
+            $reg_res = EmbyApi::createEmbyUser($username, $passwd, $config, $tpl_uid);
             
             if (!$reg_res['status']) {
                 $invite_db->restoreCode($input_invite_code);
