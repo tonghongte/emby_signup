@@ -383,7 +383,6 @@ if ($is_authenticated && isset($_POST['ajax'])) {
         // Emby
         if (!empty($_POST['emby_base_url'])) ConfigHelper::updateConfigValue($config_file, 'EMBY_BASE_URL', $_POST['emby_base_url']);
         if (!empty($_POST['emby_api_token'])) ConfigHelper::updateConfigValue($config_file, 'EMBY_API_TOKEN', $_POST['emby_api_token']);
-        if (!empty($_POST['template_user_id'])) ConfigHelper::updateConfigValue($config_file, 'EMBY_TEMPLATE_USER_ID', $_POST['template_user_id']);
         
         // Admin
         if (!empty($_POST['admin_username'])) ConfigHelper::updateConfigValue($config_file, 'ADMIN_USERNAME', $_POST['admin_username']);
@@ -718,7 +717,6 @@ $js_template_body = json_encode($template_content);
                                 <h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg> Emby 服务器</h3>
                                 <div class="form-grid">
                                     <div class="form-group"><label>Base URL</label><input type="text" name="emby_base_url" value="<?php echo htmlspecialchars($config['emby']['base_url']); ?>"></div>
-                                    <div class="form-group"><label>模板用户 ID</label><input type="text" name="template_user_id" value="<?php echo htmlspecialchars($config['emby']['template_user_id']); ?>"></div>
                                     <div class="form-group"><label>API Token (留空不修改)</label><input type="password" name="emby_api_token" placeholder="••••••••••••••••"></div>
                                 </div>
                             </div>
