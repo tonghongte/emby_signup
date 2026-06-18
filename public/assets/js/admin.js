@@ -12,12 +12,12 @@ function getEmailTemplate() {
 
 let currentEmailCode = '';
 
-function openEmailModal(code, link) {
+function openEmailModal(code, link, template) {
     currentEmailCode = code;
     const modal = document.getElementById('email-modal');
     const bodyInput = document.getElementById('email_body');
     const emailInput = document.getElementById('email_to');
-    let content = getEmailTemplate().replace(/{code}/g, code).replace(/{link}/g, link);
+    let content = getEmailTemplate().replace(/{code}/g, code).replace(/{link}/g, link).replace(/{template}/g, template || '默认');
     bodyInput.value = content;
     emailInput.value = '';
     modal.style.display = 'flex';

@@ -68,7 +68,7 @@ function renderInviteCodeRow(array $row, string $base_url, string $register_page
         </td>
         <td>
             <div style="display: flex; gap: 8px;">
-                <button class="btn btn-primary" onclick="openEmailModal('<?php echo $code; ?>', '<?php echo htmlspecialchars(addslashes($invite_link)); ?>')" style="padding: 6px 12px; font-size: 12px;">发送</button>
+                <button class="btn btn-primary" onclick="openEmailModal('<?php echo $code; ?>', '<?php echo htmlspecialchars(addslashes($invite_link)); ?>', '<?php echo htmlspecialchars(addslashes($tpl_name)); ?>')" style="padding: 6px 12px; font-size: 12px;">发送</button>
                 <button class="btn btn-danger" onclick="showConfirm('删除邀请码', '确定删除该邀请码吗？', () => ajaxAction('delete', {code: '<?php echo $code; ?>'}))" style="padding: 6px 12px; font-size: 12px;">删除</button>
             </div>
         </td>
