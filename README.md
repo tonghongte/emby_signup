@@ -6,6 +6,16 @@
 
 > 💡 本项目由 Gemini 辅助完成。
 
+---
+
+## 🔱 本 Fork 新增功能
+
+> 相对上游 [onelxzy/emby_signup](https://github.com/onelxzy/emby_signup) 的增强，详见 [CHANGELOG.md](CHANGELOG.md)。
+
+- **📨 邀请码申请**：公开申请页（邮箱 + 图形验证码），后台「邀请申请」标签可一键发码/忽略，并可邮件通知管理员。
+- **🧩 多模板账号**：后台「模板管理」支持新增/删除/启用/停用/改名；生成或申请邀请码时选择模板，注册按绑定模板克隆权限；邮件支持 `{template}` 占位符。
+- **🐳 GHCR 与 Portainer 部署**：新增 GHCR 推送 workflow、`docker-compose.yml` 及部署文档 [DEPLOY.md](DEPLOY.md)。
+
 一个基于 PHP + SQLite 的 Emby 媒体服务器自助注册与求片管理系统。允许管理员发放一次性**邀请码**，用户可通过 Web 页面自主创建新账号。系统会自动复制预设模板用户的配置和权限，并核销邀请码。
 
 > ⚠️ **安全警告**：本程序涉及 Emby 核心 API 操作及数据库读写。**请务必配置好目录权限，并禁止公网直接访问配置文件目录**，谨防 Token 或数据库泄露。

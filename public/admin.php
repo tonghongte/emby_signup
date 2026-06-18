@@ -286,9 +286,8 @@ if ($is_authenticated && isset($_POST['ajax'])) {
         $to_email = $_POST['email'] ?? '';
         $mail_body = $_POST['body'] ?? '';
         $mail_subject = $config['email_template']['subject'] ?? 'Emby Invite';
-        if (!empty($_POST['code'])) {
-            $mail_body .= "\r\n\r\n邀请模板：" . templateLabel($invite_db->getCodeTemplateId($_POST['code']));
-        }
+        $code_tpl_name = !empty($_POST['code']) ? templateLabel($invite_db->getCodeTemplateId($_POST['code'])) : '默认';
+        $mail_body = str_replace('{template}', $code_tpl_name, $mail_body);
         if (!filter_var($to_email, FILTER_VALIDATE_EMAIL)) $response['message'] = '邮箱格式不正确';
         elseif (empty($config['smtp']['host'])) $response['message'] = '未配置 SMTP 信息';
         else {
@@ -354,8 +353,7 @@ if ($is_authenticated && isset($_POST['ajax'])) {
                 // 套用邮件模版
                 $template_path = $config['email_template']['template_path'] ?? __DIR__ . '/../config/email_template.txt';
                 $body = file_exists($template_path) ? file_get_contents($template_path) : "您的邀请码：{code}\n注册链接：{link}";
-                $body = str_replace(['{code}', '{link}'], [$new_code, $invite_link], $body);
-                $body .= "\r\n\r\n邀请模板：" . templateLabel($req_tpl);
+                $body = str_replace(['{code}', '{link}', '{template}'], [$new_code, $invite_link, templateLabel($req_tpl)], $body);
                 $subject = $config['email_template']['subject'] ?? 'Emby 媒体服务器邀请函';
 
                 $res = send_smtp_email($config['smtp'], $req['email'], $subject, $body);
@@ -771,7 +769,7 @@ $js_template_body = json_encode($template_content);
                                     <div class="form-group" style="grid-column: 1 / -1;"><label>邀请邮件主题</label><input type="text" name="email_subject" value="<?php echo htmlspecialchars($config['email_template']['subject'] ?? 'Emby 媒体服务器邀请函'); ?>"></div>
                                     
                                     <div class="form-group" style="grid-column: 1 / -1;">
-                                        <label>邀请邮件正文模版 (支持 {code} 占命符，系统会自动替换为随机生成的激活码)</label>
+                                        <label>邀请邮件正文模版 (支持 {code} 激活码、{link} 注册链接、{template} 模板名称 占位符，系统会自动替换)</label>
                                         <textarea name="email_template_body" rows="6" style="width:100%; font-family: 'SF Mono', 'Roboto Mono', monospace; font-size: 13px; line-height: 1.5; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 8px; color: white; padding: 12px; outline:none; resize: vertical;"><?php echo htmlspecialchars($email_template_content); ?></textarea>
                                     </div>
                                 </div>
