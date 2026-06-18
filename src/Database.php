@@ -592,6 +592,15 @@ class InviteDB
         return $this->db->changes() > 0;
     }
 
+    public function updateTemplateName($id, string $name): bool
+    {
+        $stmt = $this->db->prepare("UPDATE templates SET name = :name WHERE id = :id");
+        $stmt->bindValue(':name', $name, SQLITE3_TEXT);
+        $stmt->bindValue(':id', $id, SQLITE3_INTEGER);
+        $stmt->execute();
+        return $this->db->changes() > 0;
+    }
+
     public function setTemplateEnabled($id, bool $enabled): bool
     {
         $stmt = $this->db->prepare("UPDATE templates SET enabled = :enabled WHERE id = :id");

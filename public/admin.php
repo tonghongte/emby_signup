@@ -122,6 +122,7 @@ function renderTemplateRow(array $tpl): string
         <td><?php echo $enabled ? '<span class="badge approved">启用</span>' : '<span class="badge rejected">停用</span>'; ?></td>
         <td>
             <div style="display: flex; gap: 8px;">
+                <button class="btn btn-primary" onclick="renameTemplate(<?php echo $tpl['id']; ?>, '<?php echo htmlspecialchars(addslashes($tpl['name'])); ?>')">改名</button>
                 <?php if ($enabled): ?>
                 <button class="btn btn-danger" onclick="ajaxAction('toggle_template', {id: <?php echo $tpl['id']; ?>, enabled: '0'})">停用</button>
                 <?php else: ?>
@@ -247,7 +248,10 @@ if ($is_authenticated && isset($_POST['ajax'])) {
     
     if ($action === 'generate') {
         $gen_tpl = (isset($_POST['template_id']) && $_POST['template_id'] !== '') ? (int)$_POST['template_id'] : null;
-        if ($invite_db->insertCode(InviteDB::generateRandomCode(), $gen_tpl)) {
+        $tpl = $gen_tpl ? $invite_db->getTemplateById($gen_tpl) : null;
+        if (!$tpl || empty($tpl['enabled'])) {
+            $response['message'] = '请先选择有效的启用模板';
+        } elseif ($invite_db->insertCode(InviteDB::generateRandomCode(), $gen_tpl)) {
             $response = ['status' => 'success', 'message' => '邀请码已生成'];
         }
     } elseif ($action === 'add_template') {
@@ -257,6 +261,13 @@ if ($is_authenticated && isset($_POST['ajax'])) {
             $response['message'] = '模板名称和 Emby 用户 ID 不能为空';
         } elseif ($invite_db->addTemplate($name, $uid)) {
             $response = ['status' => 'success', 'message' => '模板已添加'];
+        }
+    } elseif ($action === 'rename_template') {
+        $name = trim($_POST['name'] ?? '');
+        if ($name === '') {
+            $response['message'] = '模板名称不能为空';
+        } elseif ($invite_db->updateTemplateName((int)$_POST['id'], $name)) {
+            $response = ['status' => 'success', 'message' => '模板名称已更新'];
         }
     } elseif ($action === 'delete_template') {
         if ($invite_db->deleteTemplate((int)$_POST['id'])) {
@@ -275,6 +286,9 @@ if ($is_authenticated && isset($_POST['ajax'])) {
         $to_email = $_POST['email'] ?? '';
         $mail_body = $_POST['body'] ?? '';
         $mail_subject = $config['email_template']['subject'] ?? 'Emby Invite';
+        if (!empty($_POST['code'])) {
+            $mail_body .= "\r\n\r\n邀请模板：" . templateLabel($invite_db->getCodeTemplateId($_POST['code']));
+        }
         if (!filter_var($to_email, FILTER_VALIDATE_EMAIL)) $response['message'] = '邮箱格式不正确';
         elseif (empty($config['smtp']['host'])) $response['message'] = '未配置 SMTP 信息';
         else {
@@ -341,6 +355,7 @@ if ($is_authenticated && isset($_POST['ajax'])) {
                 $template_path = $config['email_template']['template_path'] ?? __DIR__ . '/../config/email_template.txt';
                 $body = file_exists($template_path) ? file_get_contents($template_path) : "您的邀请码：{code}\n注册链接：{link}";
                 $body = str_replace(['{code}', '{link}'], [$new_code, $invite_link], $body);
+                $body .= "\r\n\r\n邀请模板：" . templateLabel($req_tpl);
                 $subject = $config['email_template']['subject'] ?? 'Emby 媒体服务器邀请函';
 
                 $res = send_smtp_email($config['smtp'], $req['email'], $subject, $body);
@@ -577,7 +592,7 @@ $js_template_body = json_encode($template_content);
                             <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
                                 <?php if (!empty($enabled_templates)): ?>
                                 <select id="gen-template-select" style="height:38px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 8px; color: white; padding: 0 12px; outline:none; cursor:pointer;">
-                                    <option value="">默认模板</option>
+                                    <option value="" disabled selected>请选择模板</option>
                                     <?php foreach ($enabled_templates as $tpl): ?>
                                     <option value="<?php echo (int)$tpl['id']; ?>"><?php echo htmlspecialchars($tpl['name']); ?></option>
                                     <?php endforeach; ?>

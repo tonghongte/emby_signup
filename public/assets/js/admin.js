@@ -10,14 +10,17 @@ function getEmailTemplate() {
     return window.AppConfig ? window.AppConfig.emailTemplate : '';
 }
 
+let currentEmailCode = '';
+
 function openEmailModal(code, link) {
+    currentEmailCode = code;
     const modal = document.getElementById('email-modal');
     const bodyInput = document.getElementById('email_body');
     const emailInput = document.getElementById('email_to');
     let content = getEmailTemplate().replace(/{code}/g, code).replace(/{link}/g, link);
-    bodyInput.value = content; 
-    emailInput.value = ''; 
-    modal.style.display = 'flex'; 
+    bodyInput.value = content;
+    emailInput.value = '';
+    modal.style.display = 'flex';
     emailInput.focus();
 }
 
@@ -46,6 +49,7 @@ async function sendEmail() {
         formData.append('action', 'send_email');
         formData.append('email', email);
         formData.append('body', body);
+        formData.append('code', currentEmailCode);
 
         const response = await fetch("admin.php", {
             method: "POST", 
@@ -72,7 +76,11 @@ async function sendEmail() {
 function generateCode() {
     const sel = document.getElementById('gen-template-select');
     const tplId = sel ? sel.value : '';
-    ajaxAction('generate', tplId ? { template_id: tplId } : {});
+    if (!tplId) {
+        displayToast('请先选择模板（在「模板管理」添加并启用模板）', 'error');
+        return;
+    }
+    ajaxAction('generate', { template_id: tplId });
 }
 
 function openTemplateModal() {
@@ -104,6 +112,13 @@ async function submitTemplate() {
         btn.disabled = false;
         btn.innerText = original;
     }
+}
+
+function renameTemplate(id, current) {
+    const name = prompt('输入新的模板名称：', current); // ponytail: native prompt, custom modal if design demands
+    if (name === null) return;
+    if (!name.trim()) { displayToast('模板名称不能为空', 'error'); return; }
+    ajaxAction('rename_template', { id: id, name: name.trim() });
 }
 
 function toggleSidebar() {
